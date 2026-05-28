@@ -1,0 +1,6 @@
+{
+  "name": "Smart Image Resizer",
+  "description": "Make e-commerce images uniform, same-size, and perfectly aligned without stretching or cropping.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
