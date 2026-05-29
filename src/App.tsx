@@ -24,6 +24,8 @@ import {
   Scale,
   SlidersHorizontal,
   ChevronRight,
+  ChevronLeft,
+  X,
   RefreshCw,
   Plus,
   Crop,
@@ -51,6 +53,14 @@ const DEFAULT_SETTINGS: ResizeSettings = {
   exportQuality: 0.90,
   upscaleSmallImages: true,
   trimProductMargins: true,
+  shadowType: 'none',
+  shadowPlacement: 'outset',
+  shadowSpread: 0,
+  shadowBlur: 15,
+  shadowOffsetX: 0,
+  shadowOffsetY: 8,
+  shadowOpacity: 0.20,
+  shadowColor: '#000000',
 };
 
 export default function App() {
@@ -61,6 +71,10 @@ export default function App() {
   // View mode controls
   const [viewMode, setViewMode] = React.useState<'split' | 'single' | 'grid'>('split');
   const [currentTab, setCurrentTab] = React.useState<'editor' | 'sandbox'>('editor');
+  const [isPreviewOpen, setIsPreviewOpen] = React.useState(false);
+  const [modalBg, setModalBg] = React.useState<'checkerboard' | 'white' | 'gray' | 'dark' | 'cream'>('checkerboard');
+  const [showAlignmentGrid, setShowAlignmentGrid] = React.useState<boolean>(false);
+  const [previewZoom, setPreviewZoom] = React.useState<number>(100);
   
   // Dynamic status/UI state
   const [isProcessing, setIsProcessing] = React.useState(false);
@@ -73,6 +87,86 @@ export default function App() {
   const [customExportSizeInput, setCustomExportSizeInput] = React.useState<number>(1500);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const modalGridRef = useRef<HTMLDivElement>(null);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!gridRef.current) return;
+    gridRef.current.setPointerCapture(e.pointerId);
+    updateOffsetsFromPointer(e);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!gridRef.current || !gridRef.current.hasPointerCapture(e.pointerId)) return;
+    updateOffsetsFromPointer(e);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (gridRef.current) {
+      gridRef.current.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  const updateOffsetsFromPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!gridRef.current) return;
+    const rect = gridRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+    
+    // Map x [0, width] to offsetX range [-40, 40]
+    const pctX = x / rect.width;
+    const offsetValX = Math.round((pctX - 0.5) * 80);
+    
+    // Map y [0, height] to offsetY range [-40, 40]
+    const pctY = y / rect.height;
+    const offsetValY = Math.round((pctY - 0.5) * 80);
+    
+    setSettings(p => ({
+      ...p,
+      shadowType: 'custom',
+      shadowOffsetX: offsetValX,
+      shadowOffsetY: offsetValY
+    }));
+  };
+
+  const handleModalPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!modalGridRef.current) return;
+    modalGridRef.current.setPointerCapture(e.pointerId);
+    updateModalOffsetsFromPointer(e);
+  };
+
+  const handleModalPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!modalGridRef.current || !modalGridRef.current.hasPointerCapture(e.pointerId)) return;
+    updateModalOffsetsFromPointer(e);
+  };
+
+  const handleModalPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (modalGridRef.current) {
+      modalGridRef.current.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  const updateModalOffsetsFromPointer = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!modalGridRef.current) return;
+    const rect = modalGridRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+    
+    // Map x [0, width] to offsetX range [-40, 40]
+    const pctX = x / rect.width;
+    const offsetValX = Math.round((pctX - 0.5) * 80);
+    
+    // Map y [0, height] to offsetY range [-40, 40]
+    const pctY = y / rect.height;
+    const offsetValY = Math.round((pctY - 0.5) * 80);
+    
+    setSettings(p => ({
+      ...p,
+      shadowType: 'custom',
+      shadowOffsetX: offsetValX,
+      shadowOffsetY: offsetValY
+    }));
+  };
 
   // 1. Onboarding starts clean. Use "Load Samples" helper button on the empty state if needed.
 
@@ -289,6 +383,65 @@ export default function App() {
     setImages([]);
     setSelectedImageId(null);
     showToast('Workspace cleared.', 'info');
+  };
+
+  // Load a single high-quality test product to try out adjusting shadows
+  const handleLoadSingleTestProduct = () => {
+    const samples = getSampleProducts();
+    const s = samples[0]; // Yellow Lounge Chair
+    const newItem = {
+      id: `sample-test-${Date.now()}`,
+      name: s.name,
+      type: 'image/png',
+      size: 15420,
+      originalUrl: s.url,
+      processedUrl: s.url,
+      width: s.width,
+      height: s.height,
+      aspectRatio: s.width / s.height
+    };
+    setImages([newItem]);
+    setSelectedImageId(newItem.id);
+    showToast('Handcrafted test lounge chair loaded for shadow configuration!', 'success');
+  };
+
+  // Automated smart trigger handler to load test image and prompt modal instantly 
+  const handleOpenBigPreviewHero = () => {
+    if (!selectedImageId) {
+      const samples = getSampleProducts();
+      const s = samples[0]; // Yellow Lounge Chair
+      const newItem = {
+        id: `sample-test-${Date.now()}`,
+        name: s.name,
+        type: 'image/png',
+        size: 15420,
+        originalUrl: s.url,
+        processedUrl: s.url,
+        width: s.width,
+        height: s.height,
+        aspectRatio: s.width / s.height
+      };
+      setImages([newItem]);
+      setSelectedImageId(newItem.id);
+      setIsPreviewOpen(true);
+      showToast('Loaded Test Lounge Chair & launched full-resolution Big Preview!', 'success');
+    } else {
+      setIsPreviewOpen(true);
+    }
+  };
+
+  const handleNextImage = () => {
+    if (images.length <= 1 || !selectedImageId) return;
+    const currentIndex = images.findIndex(img => img.id === selectedImageId);
+    const nextIdx = (currentIndex + 1) % images.length;
+    setSelectedImageId(images[nextIdx].id);
+  };
+
+  const handlePrevImage = () => {
+    if (images.length <= 1 || !selectedImageId) return;
+    const currentIndex = images.findIndex(img => img.id === selectedImageId);
+    const prevIdx = (currentIndex - 1 + images.length) % images.length;
+    setSelectedImageId(images[prevIdx].id);
   };
 
   // Reset default settings
@@ -728,30 +881,42 @@ export default function App() {
 
             {/* COLUMN B (Lg: 6 cols) - Active Canvas Studio View */}
             <section className="lg:col-span-6 bg-white border border-gray-100 rounded-2xl p-5 flex flex-col shadow-sm">
-              <div className="flex items-center justify-between pb-3 border-b border-gray-50 mb-4">
+              <div className="flex items-center justify-between pb-3 border-b border-gray-50 mb-4 flex-wrap gap-2.5">
                 <div className="flex items-center gap-2">
                   <SlidersHorizontal className="w-4 h-4 text-gray-500" />
                   <h2 className="font-semibold text-sm text-gray-900">Dual Studio Inspector</h2>
                 </div>
                 
-                {/* Visualizer mode selections */}
-                <div className="flex items-center bg-gray-100 p-1 rounded-xl">
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* Big Preview Button triggers the interactive lightbox */}
                   <button
-                    onClick={() => setViewMode('split')}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
-                      viewMode === 'split' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                    }`}
+                    onClick={handleOpenBigPreviewHero}
+                    className="px-3.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm hover:shadow-md hover:shadow-blue-500/10 cursor-pointer transition-all active:scale-[0.98] flex items-center gap-1.5"
+                    title="Open full resolution larger preview modal to adjust shadows visually"
                   >
-                    Compare Fit
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span>Big Preview</span>
                   </button>
-                  <button
-                    onClick={() => setViewMode('single')}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
-                      viewMode === 'single' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-                    }`}
-                  >
-                    Processed Render
-                  </button>
+
+                  {/* Visualizer mode selections */}
+                  <div className="flex items-center bg-gray-100 p-1 rounded-xl">
+                    <button
+                      onClick={() => setViewMode('split')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                        viewMode === 'split' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      Compare Fit
+                    </button>
+                    <button
+                      onClick={() => setViewMode('single')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all ${
+                        viewMode === 'single' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                      }`}
+                    >
+                      Processed Render
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -908,10 +1073,19 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-2xl py-20 text-gray-400">
-                  <ImageIcon className="w-12 h-12 stroke-[1] mb-3 text-gray-300" />
-                  <p className="font-semibold text-sm">Workspace Active Slate is Blank</p>
-                  <p className="text-xs text-gray-400 mt-1 max-w-[260px] text-center">Please upload product photos or select one from the Left Hand Queue side</p>
+                <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-2xl py-16 px-4 text-center text-gray-400">
+                  <ImageIcon className="w-12 h-12 stroke-[1] mb-3 text-gray-350 animate-pulse" />
+                  <p className="font-bold text-sm text-gray-800">Studio Workspace is Empty</p>
+                  <p className="text-xs text-gray-400 mt-1.5 max-w-[280px] mx-auto leading-relaxed">
+                    Import your catalog items, or insert a sample product below to test and fine-tune your drop shadows instantly.
+                  </p>
+                  <button
+                    onClick={handleLoadSingleTestProduct}
+                    className="mt-6 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-md hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer transition-all active:scale-[0.98] flex items-center gap-1.5"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    Load 1 Test Product to Adjust
+                  </button>
                 </div>
               )}
             </section>
@@ -986,71 +1160,78 @@ export default function App() {
                 )}
               </div>
 
-              {/* FIT MODE PRESETS (Highlighting Contain) */}
+                   {/* FIT MODE PRESETS (Highlighting Contain) */}
               <div className="flex flex-col gap-2">
-                <label className="text-xs font-semibold text-gray-700 flex items-center justify-between">
-                  <span>Smart Align fitting</span>
-                  <span className="text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded font-semibold border border-green-100">No Crop Active</span>
+                <label className="text-xs font-bold text-gray-800 flex items-center justify-between uppercase tracking-wider">
+                  <span>Smart Align Fitting</span>
+                  <span className="text-[10px] text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full font-bold border border-blue-100">No Crop Active</span>
                 </label>
-                <div className="flex flex-col gap-1.5">
-                  <button
-                    onClick={() => setSettings(prev => ({ ...prev, fitMode: 'contain' }))}
-                    className={`p-2.5 rounded-xl border text-left flex items-start justify-between cursor-pointer transition-all ${
-                      settings.fitMode === 'contain'
-                        ? 'bg-white border-green-500 shadow-sm ring-1 ring-green-600'
-                        : 'bg-white border-gray-100 hover:bg-gray-50/50'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center gap-1 text-xs font-bold text-gray-800">
-                        <span>Pure Contain (Fit Frame)</span>
-                        <span className="text-[9px] bg-green-600 text-white px-1 py-0.2 rounded font-mono">OK</span>
-                      </div>
-                      <p className="text-[10px] text-gray-400 mt-0.5">Fits entire product inside boundaries using safe padding. Never crops details.</p>
-                    </div>
-                    <CheckCircle className={`w-4 h-4 flex-shrink-0 ml-2 ${settings.fitMode === 'contain' ? 'text-green-600' : 'text-gray-300'}`} />
-                  </button>
-
-                  <button
-                    onClick={() => setSettings(prev => ({ ...prev, fitMode: 'cover' }))}
-                    className={`p-2.5 rounded-xl border text-left flex items-start justify-between cursor-pointer transition-all ${
-                      settings.fitMode === 'cover'
-                        ? 'bg-white border-blue-500 shadow-sm ring-1 ring-blue-600'
-                        : 'bg-white border-gray-100 hover:bg-gray-50/50'
-                    }`}
-                  >
-                    <div>
-                      <div className="text-xs font-semibold text-gray-700">Cover & Crop (Zoom Fill)</div>
-                      <p className="text-[10px] text-gray-400 mt-0.5">Fills bounds completely. Parts that exceed aspect ratio will be cropped off.</p>
-                    </div>
-                    <span className="w-2.5 h-2.5 rounded-full border border-gray-300 mt-1 flex-shrink-0" />
-                  </button>
-
-                  <button
-                    onClick={() => setSettings(prev => ({ ...prev, fitMode: 'stretch' }))}
-                    className={`p-2.5 rounded-xl border text-left flex items-start justify-between cursor-pointer transition-all ${
-                      settings.fitMode === 'stretch'
-                        ? 'bg-red-50/20 border-red-500 shadow-sm ring-1 ring-red-600'
-                        : 'bg-white border-gray-100 hover:bg-gray-50/50'
-                    }`}
-                  >
-                    <div>
-                      <div className="flex items-center gap-1 text-xs font-semibold text-red-700">
-                        <span>Stretched Distortion</span>
-                        <span className="text-[9px] bg-red-600 text-white px-1 py-0.2 rounded font-mono">BAD</span>
-                      </div>
-                      <p className="text-[10px] text-red-400 mt-0.5">Forces image to stretch, skewing your photos. Distorts product dimensions.</p>
-                    </div>
-                    <XCircle className={`w-4 h-4 flex-shrink-0 ml-2 ${settings.fitMode === 'stretch' ? 'text-red-500' : 'text-gray-300'}`} />
-                  </button>
+                <div className="flex flex-col gap-2">
+                  {[
+                    {
+                      key: 'contain',
+                      label: 'Pure Contain (Fit Frame)',
+                      desc: 'Fits the entire product inside boundaries using safe padding. Never crops details.',
+                      badge: 'OK',
+                      badgeColor: 'bg-green-100 text-green-800 border-green-200'
+                    },
+                    {
+                      key: 'cover',
+                      label: 'Cover & Crop (Zoom Fill)',
+                      desc: 'Fills bounds completely. Parts that exceed aspect ratio will be cropped off.',
+                      badge: 'Auto Crop',
+                      badgeColor: 'bg-blue-100 text-blue-800 border-blue-200'
+                    },
+                    {
+                      key: 'stretch',
+                      label: 'Stretched Distortion',
+                      desc: 'Forces image to stretch, skewing your photos. Distorts product dimensions.',
+                      badge: 'BAD',
+                      badgeColor: 'bg-red-100 text-red-800 border-red-200'
+                    }
+                  ].map((mode) => {
+                    const active = settings.fitMode === mode.key;
+                    return (
+                      <button
+                        key={mode.key}
+                        onClick={() => {
+                          setSettings(prev => ({ ...prev, fitMode: mode.key as any }));
+                        }}
+                        className={`p-3 rounded-2xl border text-left flex items-start justify-between cursor-pointer transition-all duration-200 ${
+                          active
+                            ? 'bg-blue-50/10 border-blue-600 ring-2 ring-blue-500/10 shadow-sm'
+                            : 'bg-white border-gray-150 hover:bg-gray-50/50 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex-1 pr-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-xs font-bold leading-normal ${active ? 'text-blue-950' : 'text-gray-800'}`}>
+                              {mode.label}
+                            </span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded border uppercase tracking-wider ${mode.badgeColor}`}>
+                              {mode.badge}
+                            </span>
+                          </div>
+                          <p className={`text-[10px] leading-relaxed mt-1 ${active ? 'text-blue-900/85' : 'text-gray-400'}`}>
+                            {mode.desc}
+                          </p>
+                        </div>
+                        <div className={`w-4 h-4 rounded-full border flex items-center justify-center mt-0.5 flex-shrink-0 transition-colors ${
+                          active ? 'border-blue-600 bg-blue-600' : 'border-gray-200 bg-white'
+                        }`}>
+                          <CheckCircle className={`w-4 h-4 ${active ? 'text-white' : 'text-gray-200'}`} />
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               {/* DYNAMIC PADDING SLIDER */}
-              <div className="flex flex-col gap-2">
-                <div className="flex justify-between items-center text-xs font-semibold text-gray-700">
+              <div className="flex flex-col gap-2.5 p-4 bg-gray-50/40 border border-gray-150 rounded-2xl">
+                <div className="flex justify-between items-center text-xs font-bold text-gray-700 uppercase tracking-wider">
                   <span>Adjust Product Padding Space</span>
-                  <span className="font-mono text-gray-500 bg-gray-100 px-2 py-0.5 rounded text-[11px]">{settings.padding}%</span>
+                  <span className="font-mono text-xs text-blue-700 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded font-extrabold">{settings.padding}%</span>
                 </div>
                 <input 
                   type="range" 
@@ -1058,16 +1239,16 @@ export default function App() {
                   max="40" 
                   value={settings.padding}
                   onChange={(e) => setSettings(p => ({ ...p, padding: Number(e.target.value) }))}
-                  className="w-full accent-blue-600 cursor-pointer"
+                  className="w-full h-1.5 rounded bg-gray-200 accent-blue-600 cursor-pointer"
                 />
-                <span className="text-[9px] text-gray-400">Adjusts the padding space/margins inside the full box to keep the product centered.</span>
+                <span className="text-[9px] text-gray-550 leading-normal block">Adjusts the extra padding space/margins inside the borders to keep the product safely centered.</span>
               </div>
 
               {/* TRIM MARGINS TOGGLE */}
-              <div className="flex flex-col gap-2 p-3 bg-white border border-gray-200 rounded-2xl">
+              <div className="flex flex-col gap-2.5 p-4 bg-white border border-gray-150 rounded-2xl">
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col gap-0.5">
-                    <label className="text-xs font-bold text-gray-800 flex items-center gap-1.5 cursor-pointer">
+                    <label className="text-xs font-bold text-gray-800 flex items-center gap-1.5 cursor-pointer uppercase tracking-wider">
                       <Crop className="w-3.5 h-3.5 text-blue-600" />
                       Trim Transparency & Margins
                     </label>
@@ -1094,96 +1275,88 @@ export default function App() {
                     />
                   </button>
                 </div>
-                <div className="bg-blue-50/45 rounded-xl p-2.5 border border-blue-100/50">
-                  <p className="text-[10px] text-blue-900 leading-normal font-medium">
+                <div className="bg-blue-50/40 rounded-xl p-2.5 border border-blue-100/50">
+                  <p className="text-[10px] text-blue-950 leading-relaxed font-semibold">
                     ✨ <strong>Already removed background?</strong> Active! This reads actual transparent png pixels, crops empty spaces, and applies padding space <em>directly from your product contents</em>, not the background whitespace.
                   </p>
                 </div>
               </div>
 
               {/* UPSCALE SMALL IMAGES OPTIONS */}
-              <div className="flex flex-col gap-2.5 p-3.5 bg-gradient-to-br from-blue-50 to-blue-50/20 border border-blue-200 rounded-2xl">
+              <div className="flex flex-col gap-3 p-4 bg-gray-50/40 border border-gray-150 rounded-2xl">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-extrabold text-blue-900 flex items-center gap-1.5 uppercase tracking-wider">
-                    <Sparkles className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+                  <label className="text-xs font-bold text-gray-800 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
                     Auto Big Fill Uniform
                   </label>
-                  <span className="text-[9px] font-bold uppercase bg-blue-600 text-white px-1.5 py-0.5 rounded-full shadow-sm">
+                  <span className="text-[9px] font-bold uppercase bg-blue-50 text-blue-700 border border-blue-100 px-2 py-0.5 rounded-full shadow-sm">
                     {settings.upscaleSmallImages && settings.padding === 0 && settings.fitMode === 'cover' 
-                      ? 'Full Box Cover'
+                      ? 'Full Cover'
                       : settings.upscaleSmallImages 
-                        ? 'Padded Uniform' 
-                        : 'Original Size'}
+                        ? 'Padded Fit' 
+                        : 'Original'}
                   </span>
                 </div>
                 
-                <div className="flex flex-col gap-1.5 mt-1">
-                  <button
-                    onClick={() => {
-                      setSettings(p => ({ 
-                        ...p, 
-                        upscaleSmallImages: true,
-                        fitMode: 'cover',
-                        padding: 0
-                      }));
-                      showToast('Configured to Full Box Cover Mode. Images will zoom-fill the entire box bounds with 0 margins.', 'success');
-                    }}
-                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold cursor-pointer transition-all duration-200 flex items-center justify-between ${
-                      settings.upscaleSmallImages && settings.padding === 0 && settings.fitMode === 'cover'
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-500/15' 
-                        : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-150'
-                    }`}
-                  >
-                    <span>⚡ Set Full Box Cover (No backgrounds)</span>
-                    <CheckCircle className={`w-3.5 h-3.5 ${
-                      settings.upscaleSmallImages && settings.padding === 0 && settings.fitMode === 'cover' ? 'text-white' : 'text-gray-300'
-                    }`} />
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setSettings(p => ({ 
-                        ...p, 
-                        upscaleSmallImages: true,
-                        fitMode: 'contain',
-                        padding: 10
-                      }));
-                      showToast('Configured to Padded Uniform Fit. Images scale safely with 10% breathing padding.', 'success');
-                    }}
-                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold cursor-pointer transition-all duration-200 flex items-center justify-between ${
-                      settings.upscaleSmallImages && (settings.padding > 0 || settings.fitMode === 'contain')
-                        ? 'bg-blue-600 text-white shadow-md shadow-blue-500/15' 
-                        : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-150'
-                    }`}
-                  >
-                    <span>🌸 Padded Uniform Fit (With margins)</span>
-                    <CheckCircle className={`w-3.5 h-3.5 ${
-                      settings.upscaleSmallImages && (settings.padding > 0 || settings.fitMode === 'contain') ? 'text-white' : 'text-gray-300'
-                    }`} />
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setSettings(p => ({ ...p, upscaleSmallImages: false }));
-                      showToast('Deactivated auto upscale. Small images remain at native size.', 'info');
-                    }}
-                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold cursor-pointer transition-all duration-200 flex items-center justify-between ${
-                      !settings.upscaleSmallImages 
-                        ? 'bg-blue-600 text-white shadow-md' 
-                        : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
-                    }`}
-                  >
-                    <span>⚙️ Keep Original (No stretching)</span>
-                    <CheckCircle className={`w-3.5 h-3.5 ${!settings.upscaleSmallImages ? 'text-white' : 'text-gray-300'}`} />
-                  </button>
+                <div className="flex flex-col gap-1.5">
+                  {[
+                    {
+                      label: '⚡ Set Full Box Cover (No backgrounds)',
+                      active: settings.upscaleSmallImages && settings.padding === 0 && settings.fitMode === 'cover',
+                      action: () => {
+                        setSettings(p => ({ 
+                          ...p, 
+                          upscaleSmallImages: true,
+                          fitMode: 'cover',
+                          padding: 0
+                        }));
+                        showToast('Configured to Full Box Cover Mode. Images will zoom-fill the entire box bounds with 0 margins.', 'success');
+                      }
+                    },
+                    {
+                      label: '🌸 Padded Uniform Fit (With margins)',
+                      active: settings.upscaleSmallImages && (settings.padding > 0 || settings.fitMode === 'contain'),
+                      action: () => {
+                        setSettings(p => ({ 
+                          ...p, 
+                          upscaleSmallImages: true,
+                          fitMode: 'contain',
+                          padding: 10
+                        }));
+                        showToast('Configured to Padded Uniform Fit. Images scale safely with 10% breathing padding.', 'success');
+                      }
+                    },
+                    {
+                      label: '⚙️ Keep Original (No stretching)',
+                      active: !settings.upscaleSmallImages,
+                      action: () => {
+                        setSettings(p => ({ ...p, upscaleSmallImages: false }));
+                        showToast('Deactivated auto upscale. Small images remain at native size.', 'info');
+                      }
+                    }
+                  ].map((btn, index) => (
+                    <button
+                      key={`big-fill-${index}`}
+                      onClick={btn.action}
+                      className={`w-full py-2 px-3 rounded-xl text-xs font-bold cursor-pointer transition-all duration-200 flex items-center justify-between ${
+                        btn.active
+                          ? 'bg-blue-600 text-white shadow-md border border-blue-600' 
+                          : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-150'
+                      }`}
+                    >
+                      <span>{btn.label}</span>
+                      <CheckCircle className={`w-3.5 h-3.5 ${btn.active ? 'text-white' : 'text-gray-200'}`} />
+                    </button>
+                  ))}
                 </div>
-                <p className="text-[10px] text-gray-500 mt-1 leading-normal font-medium">
+                
+                <p className="text-[10px] text-gray-500 leading-relaxed font-semibold">
                   {settings.upscaleSmallImages && settings.padding === 0 && settings.fitMode === 'cover' ? (
-                    <span>✨ <strong className="text-blue-900">Active - Set Full Box:</strong> Main product image automatically fills the entire box frame completely, ignoring backgrounds. Perfect for filled photography.</span>
+                    <span>✨ <strong className="text-blue-900 font-bold">Active - Set Full Box:</strong> Main product image automatically fills the entire box frame completely, ignoring backgrounds. Perfect for filled photography.</span>
                   ) : settings.upscaleSmallImages ? (
-                    <span>🌸 <strong className="text-blue-900">Active - Padded Fit:</strong> Scales images up to maximum uniform size, keeping custom breathing margins from box edges so items correspond beautifully.</span>
+                    <span>🌸 <strong className="text-blue-900 font-bold">Active - Padded Fit:</strong> Scales images up to maximum uniform size, keeping custom breathing margins from box edges so items correspond beautifully.</span>
                   ) : (
-                    <span>⚠️ <strong className="text-gray-700">Inactive:</strong> Small product photos keep their native resolution inside outer bounding frame.</span>
+                    <span>⚠️ <strong className="text-gray-700 font-bold">Inactive:</strong> Small product photos keep their native resolution inside outer bounding frame.</span>
                   )}
                 </p>
               </div>
@@ -1242,6 +1415,236 @@ export default function App() {
                 )}
               </div>
 
+              {/* DYNAMIC CONTOUR-AWARE DROP SHADOW CONTROLS */}
+              <div className="flex flex-col gap-3 pt-3 border-t border-gray-50 bg-[#fafafa]/40 p-2.5 rounded-xl border border-gray-100">
+                <label className="text-[11px] font-bold text-gray-800 flex items-center justify-between uppercase tracking-wider">
+                  <span className="flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
+                    Drop Shadow Station
+                  </span>
+                  <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700">
+                    {settings.shadowType === 'none' ? 'Disabled' : settings.shadowType}
+                  </span>
+                </label>
+
+                {/* Highly visible quick button to load test lounge chair for shadow preview and adjustment */}
+                <div className="flex items-center justify-between gap-2 bg-blue-50/60 p-2 rounded-xl border border-blue-100/60">
+                  <span className="text-[10px] text-blue-850 font-bold">Want to preview right now?</span>
+                  <button
+                    onClick={handleLoadSingleTestProduct}
+                    className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[9px] font-extrabold tracking-wide uppercase shadow-sm cursor-pointer transition-all active:scale-[0.98] flex items-center gap-1"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Test Lounge Chair ⚡
+                  </button>
+                </div>
+                
+                {/* Visual Preset selection buttons */}
+                <div className="grid grid-cols-6 gap-1">
+                  {[
+                    { type: 'none', label: 'None' },
+                    { type: 'soft', label: 'Soft' },
+                    { type: 'medium', label: 'Med' },
+                    { type: 'hard', label: 'Hard' },
+                    { type: 'glow', label: 'Glow' },
+                    { type: 'custom', label: 'Custom' }
+                  ].map((preset) => {
+                    const active = settings.shadowType === preset.type;
+                    return (
+                      <button
+                        key={preset.type}
+                        onClick={() => {
+                          setSettings(p => ({ ...p, shadowType: preset.type as any }));
+                          showToast(`Applied ${preset.label} shadow preset effect.`, 'success');
+                        }}
+                        className={`py-1 rounded text-[9px] font-bold border cursor-pointer text-center transition-all ${
+                          active
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                            : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-600'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Show warning if background style is set to transparent when drawing shadows */}
+                {settings.shadowType !== 'none' && settings.bgStyle === 'transparent' && (
+                  <p className="text-[10px] text-amber-700 bg-amber-100/40 p-2 rounded-xl border border-amber-200 mt-0.5 leading-normal">
+                    ⚠️ We recommend exporting as <strong>PNG</strong> or <strong>WEBP</strong> to preserve the shadows against transparent backgrounds correctly.
+                  </p>
+                )}
+
+                {/* Highly custom, modular parameter dashboard exactly matching wireframe screenshot */}
+                {settings.shadowType !== 'none' && (
+                  <div className="p-3 bg-white rounded-xl border border-gray-200 flex flex-col gap-3.5 shadow-sm mt-0.5">
+                    
+                    {/* Row 1: Type Selection Outset/Inset */}
+                    <div className="flex items-center justify-between gap-2.5 pb-1.5 border-b border-gray-100/50">
+                      <span className="text-xs font-bold text-gray-800">Type</span>
+                      <div className="flex bg-gray-50 p-0.5 rounded-lg border border-gray-200 text-[10px] w-36 font-extrabold shadow-inner">
+                        <button
+                          onClick={() => setSettings(p => ({ ...p, shadowType: 'custom', shadowPlacement: 'outset' }))}
+                          className={`flex-1 py-1 rounded-md cursor-pointer text-center transition-all ${
+                            settings.shadowPlacement === 'outset' 
+                              ? 'bg-blue-600 text-white shadow-sm' 
+                              : 'bg-transparent text-gray-600 hover:text-gray-900'
+                          }`}
+                        >
+                          Outset
+                        </button>
+                        <button
+                          onClick={() => setSettings(p => ({ ...p, shadowType: 'custom', shadowPlacement: 'inset' }))}
+                          className={`flex-1 py-1 rounded-md cursor-pointer text-center transition-all ${
+                            settings.shadowPlacement === 'inset' 
+                              ? 'bg-blue-600 text-white shadow-sm' 
+                              : 'bg-transparent text-gray-600 hover:text-gray-900'
+                          }`}
+                        >
+                          Inset
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Row 2: Double inputs (X/Y Offsets) & 2D Dynamic Grid Pad */}
+                    <div className="flex items-center justify-between gap-4 py-0.5">
+                      <div className="flex-1 flex flex-col gap-3">
+                        {/* X offset */}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-700 font-medium">X offset</span>
+                          <input 
+                            type="number"
+                            min="-100"
+                            max="100"
+                            value={settings.shadowOffsetX}
+                            onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowOffsetX: Math.min(100, Math.max(-100, Number(e.target.value) || 0)) }))}
+                            className="w-16 text-center border border-gray-300 bg-gray-50 focus:bg-white rounded-lg py-1 px-1 text-xs font-mono font-bold text-gray-800 outline-none focus:border-blue-500 shadow-sm transition-colors"
+                          />
+                        </div>
+                        {/* Y offset */}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-700 font-medium">Y offset</span>
+                          <input 
+                            type="number"
+                            min="-100"
+                            max="100"
+                            value={settings.shadowOffsetY}
+                            onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowOffsetY: Math.min(100, Math.max(-100, Number(e.target.value) || 0)) }))}
+                            className="w-16 text-center border border-gray-300 bg-gray-50 focus:bg-white rounded-lg py-1 px-1 text-xs font-mono font-bold text-gray-800 outline-none focus:border-blue-500 shadow-sm transition-colors"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Interactive 2D Pointer Joystick Crosshair */}
+                      <div 
+                        ref={gridRef}
+                        onPointerDown={handlePointerDown}
+                        onPointerMove={handlePointerMove}
+                        onPointerUp={handlePointerUp}
+                        className="w-[84px] h-[84px] border-2 border-gray-200/80 bg-[#fbfbfa] rounded-xl relative overflow-hidden select-none cursor-crosshair shadow-inner"
+                        title="Drag dot to adjust offset values dynamically in 2D Space"
+                      >
+                        {/* Crosshair guide lines */}
+                        <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-gray-300/40" />
+                        <div className="absolute inset-y-0 left-1/2 border-l border-dashed border-gray-300/40" />
+                        
+                        {/* Active handle dot */}
+                        <div 
+                          className="absolute w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full shadow-md -translate-x-1/2 -translate-y-1/2 hover:scale-110 active:scale-95 transition-all"
+                          style={{
+                            left: `${Math.min(95, Math.max(5, ((settings.shadowOffsetX + 40) / 80) * 100))}%`,
+                            top: `${Math.min(95, Math.max(5, ((settings.shadowOffsetY + 40) / 80) * 100))}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Row 3: Blur Input & Slider aligned precisely */}
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-gray-700 font-medium w-12 text-left">Blur</span>
+                      <input 
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={settings.shadowBlur}
+                        onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowBlur: Math.min(100, Math.max(0, Number(e.target.value) || 0)) }))}
+                        className="w-14 text-center border border-gray-300 bg-gray-50 focus:bg-white rounded-lg py-1 px-1 text-xs font-mono font-bold text-gray-800 outline-none focus:border-blue-500 shadow-sm transition-colors"
+                      />
+                      <input 
+                        type="range"
+                        min="0"
+                        max="60"
+                        value={settings.shadowBlur}
+                        onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowBlur: Number(e.target.value) }))}
+                        className="flex-1 h-1.5 accent-blue-600 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Row 4: Spread Input & Slider aligned precisely */}
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-gray-700 font-medium w-12 text-left">Spread</span>
+                      <input 
+                        type="number"
+                        min="-50"
+                        max="100"
+                        value={settings.shadowSpread}
+                        onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowSpread: Math.min(100, Math.max(-50, Number(e.target.value) || 0)) }))}
+                        className="w-14 text-center border border-gray-300 bg-gray-50 focus:bg-white rounded-lg py-1 px-1 text-xs font-mono font-bold text-gray-800 outline-none focus:border-blue-500 shadow-sm transition-colors"
+                      />
+                      <input 
+                        type="range"
+                        min="-20"
+                        max="40"
+                        value={settings.shadowSpread}
+                        onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowSpread: Number(e.target.value) }))}
+                        className="flex-1 h-1.5 accent-blue-600 cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Advanced shadow opacity & color togglers */}
+                    <div className="pt-2 border-t border-gray-100 flex flex-col gap-2.5">
+                      {/* Opacity slider */}
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs text-gray-700 font-medium w-12 text-left">Opacity</span>
+                        <span className="w-14 text-center text-xs font-bold font-mono text-gray-600 py-0.5 bg-gray-100 rounded">
+                          {Math.round(settings.shadowOpacity * 100)}%
+                        </span>
+                        <input 
+                          type="range" 
+                          min="0.05" 
+                          max="0.80" 
+                          step="0.05"
+                          value={settings.shadowOpacity}
+                          onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowOpacity: Number(e.target.value) }))}
+                          className="flex-1 h-1 bg-gray-250 cursor-pointer accent-blue-600"
+                        />
+                      </div>
+
+                      {/* Color picker */}
+                      <div className="flex items-center justify-between gap-3 mt-1 bg-gray-50 p-2 rounded-xl border border-gray-100">
+                        <span className="text-[10px] text-gray-600 font-bold uppercase tracking-wider">Color Accent</span>
+                        <div className="flex items-center gap-2">
+                          <input 
+                            type="color" 
+                            value={settings.shadowColor}
+                            onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowColor: e.target.value }))}
+                            className="w-7 h-6 rounded border border-gray-300 cursor-pointer bg-white"
+                          />
+                          <input 
+                            type="text" 
+                            value={settings.shadowColor}
+                            onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowColor: e.target.value }))}
+                            className="w-20 bg-white border border-gray-200 rounded-lg px-2 py-0.5 text-[11px] text-gray-700 outline-none focus:border-blue-500 font-mono font-bold text-center"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                )}
+              </div>
+              
               {/* EXPORT OPTIONS */}
               <div className="flex flex-col gap-2 pt-3 border-t border-gray-50">
                 <label className="text-xs font-semibold text-gray-700">Export Parameters</label>
@@ -1626,6 +2029,520 @@ export default function App() {
           </div>
         </div>
       </footer>
+
+      {/* 🔬 ADVANCED INTERACTIVE LIVE SHADOW PREVIEW LAB MODAL */}
+      <AnimatePresence>
+        {isPreviewOpen && selectedImage && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-950/75 overflow-x-hidden overflow-y-auto"
+          >
+            {/* Backdrop Click Close */}
+            <div className="absolute inset-0 cursor-default" onClick={() => setIsPreviewOpen(false)} />
+
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+              className="bg-white rounded-3xl overflow-hidden shadow-2xl border border-gray-100 max-w-6xl w-full max-h-[92vh] md:max-h-[85vh] flex flex-col z-10 relative"
+            >
+              
+              {/* Header Title Section */}
+              <div className="flex items-center justify-between p-4 px-6 border-b border-gray-100 bg-gray-50/50">
+                <div className="flex items-center gap-2.5 text-left">
+                  <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                    <Sparkles className="w-5 h-5 animate-pulse" />
+                  </div>
+                  <div className="text-left">
+                    <h3 className="font-extrabold text-sm md:text-base text-gray-950 tracking-tight">🔬 Advanced Live Shadow Lab</h3>
+                    <p className="text-[10px] md:text-xs text-gray-400 font-medium">
+                      Item Name: <span className="font-semibold text-gray-650">{selectedImage.name}</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 font-bold hidden sm:inline-flex">
+                    Interactive Workspace (Live)
+                  </span>
+                  <button 
+                    onClick={() => setIsPreviewOpen(false)}
+                    className="p-1 px-2 hover:bg-gray-200/80 rounded-xl text-gray-500 hover:text-gray-900 transition-all cursor-pointer flex items-center"
+                    title="Close preview"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Main split dashboard panel */}
+              <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden h-full">
+                
+                {/* Visual Canvas Area (7 Columns) */}
+                <div className="lg:col-span-7 bg-gray-100/40 p-4 md:p-6 flex flex-col justify-between relative overflow-hidden border-r border-gray-100 min-h-[350px] lg:min-h-0">
+                  
+                  {/* Canvas Toolbar Controls: zoom, grid guidelines, backdrop selectors */}
+                  <div className="flex items-center justify-between gap-2.5 mb-4 bg-white/70 backdrop-blur-sm p-2 rounded-2xl border border-gray-200/70 shadow-sm z-10 text-[11px] font-bold text-gray-800 flex-wrap">
+                    
+                    {/* Background preset color switcher */}
+                    <div className="flex items-center gap-1.5 font-sans font-semibold text-gray-700">
+                      <span className="text-gray-500 text-[10px] uppercase font-bold tracking-wider">Canvas:</span>
+                      <div className="flex gap-1 flex-wrap">
+                        {[
+                          { key: 'checkerboard', label: 'Pattern' },
+                          { key: 'white', label: 'White' },
+                          { key: 'gray', label: 'Gray' },
+                          { key: 'cream', label: 'Cream' },
+                          { key: 'dark', label: 'Dark' }
+                        ].map((b) => {
+                          const active = modalBg === b.key;
+                          return (
+                            <button
+                              key={b.key}
+                              onClick={() => {
+                                setModalBg(b.key as any);
+                                showToast(`Applied ${b.label} backdrop to studio live preview environment.`, 'success');
+                              }}
+                              className={`px-2 py-1 rounded-md text-[10px] border cursor-pointer font-extrabold transition-all ${
+                                active 
+                                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm' 
+                                  : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                              }`}
+                              title={`Set canvas background style to ${b.label}`}
+                            >
+                              {b.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                      {/* Bounding category alignment grid overlay */}
+                      <label className="flex items-center gap-1.5 cursor-pointer selection:bg-transparent">
+                        <input 
+                          type="checkbox"
+                          checked={showAlignmentGrid}
+                          onChange={(e) => setShowAlignmentGrid(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded accent-blue-600 cursor-pointer"
+                        />
+                        <span className="text-gray-650 text-[10px] uppercase tracking-wider font-extrabold">Shop Grid Lines</span>
+                      </label>
+
+                      {/* Zoom viewer sizing controller */}
+                      <div className="flex items-center gap-1 font-mono text-[10px] text-gray-500">
+                        <span>Zoom:</span>
+                        <input 
+                          type="range"
+                          min="50"
+                          max="150"
+                          value={previewZoom}
+                          onChange={(e) => setPreviewZoom(Number(e.target.value))}
+                          className="w-16 h-1 accent-blue-600"
+                        />
+                        <span className="bg-gray-100 font-bold text-gray-800 px-1 py-0.2 rounded w-8 text-center">{previewZoom}%</span>
+                      </div>
+                    </div>
+
+                  </div>
+
+                  {/* LARGE IMAGE PRESENTATION VIEW WITH SWIPE BUTTONS */}
+                  <div className="flex-1 flex items-center justify-center relative py-2">
+                    
+                    {/* Previous Button */}
+                    {images.length > 1 && (
+                      <button
+                        onClick={handlePrevImage}
+                        className="absolute left-1 z-15 p-2 bg-white/90 hover:bg-white rounded-full shadow-lg border border-gray-100 hover:scale-105 active:scale-95 text-gray-700 hover:text-gray-950 transition-all cursor-pointer"
+                        title="Display previous image in list"
+                      >
+                        <ChevronLeft className="w-5 h-5 stroke-[2.5]" />
+                      </button>
+                    )}
+
+                    {/* High-res Image Presentation Bounding Container */}
+                    <div className="w-full flex justify-center items-center h-full max-h-[380px] md:max-h-[460px]">
+                      <div 
+                        className={`relative shadow-xl transition-all h-[280px] md:h-[380px] rounded-2xl overflow-hidden flex items-center justify-center border border-gray-200 select-none ${
+                          modalBg === 'checkerboard' ? 'checkerboard-bg' : ''
+                        }`}
+                        style={{
+                          aspectRatio: settings.aspectRatioType === 'custom'
+                            ? `${settings.customWidth}/${settings.customHeight}`
+                            : settings.aspectRatioType.replace(':', '/'),
+                          transform: `scale(${previewZoom / 100})`,
+                          height: '100%',
+                          backgroundColor: 
+                            modalBg === 'white' ? '#ffffff' :
+                            modalBg === 'gray' ? '#f3f4f6' :
+                            modalBg === 'cream' ? '#fdfbf7' :
+                            modalBg === 'dark' ? '#111827' : undefined
+                        }}
+                      >
+                        {/* Live alignment guidelines */}
+                        {showAlignmentGrid && (
+                          <div className="absolute inset-0 pointer-events-none z-10 border border-green-500/10">
+                            {/* Horizontal rule lines */}
+                            <div className="absolute inset-x-0 top-1/4 border-b border-dashed border-green-500/20" />
+                            <div className="absolute inset-x-0 top-2/4 border-b border-dashed border-green-500/30" />
+                            <div className="absolute inset-x-0 top-3/4 border-b border-dashed border-green-500/20" />
+                            {/* Vertical rule lines */}
+                            <div className="absolute inset-y-0 left-1/4 border-r border-dashed border-green-500/20" />
+                            <div className="absolute inset-y-0 left-2/4 border-r border-dashed border-green-500/30" />
+                            <div className="absolute inset-y-0 left-3/4 border-r border-dashed border-green-500/20" />
+                            {/* Outer safety margin box */}
+                            <div className="absolute inset-4 border border-green-500/15 rounded-xl text-[8px] font-mono font-bold text-green-700/65 p-1 flex items-end justify-end">
+                              SAFE MARGIN BOUNDS
+                            </div>
+                          </div>
+                        )}
+
+                        <img 
+                          src={selectedImage.processedUrl} 
+                          alt="Large scale live result view" 
+                          className="max-w-full max-h-full object-contain block m-auto"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Next Button */}
+                    {images.length > 1 && (
+                      <button
+                        onClick={handleNextImage}
+                        className="absolute right-1 z-15 p-2 bg-white/90 hover:bg-white rounded-full shadow-lg border border-gray-100 hover:scale-105 active:scale-95 text-gray-700 hover:text-gray-950 transition-all cursor-pointer"
+                        title="Display next image in list"
+                      >
+                        <ChevronRight className="w-5 h-5 stroke-[2.5]" />
+                      </button>
+                    )}
+
+                  </div>
+
+                  {/* Foot metadata */}
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-gray-400 font-medium">
+                    <span className="flex items-center gap-1">
+                      <ImageIcon className="w-3.5 h-3.5 text-gray-450 text-sans" />
+                      Size: {settings.aspectRatioType === 'custom' 
+                        ? `${settings.customWidth}×${settings.customHeight}`
+                        : settings.aspectRatioType === '1:1' ? '800×800' 
+                        : settings.aspectRatioType === '4:3' ? '800×600'
+                        : settings.aspectRatioType === '3:4' ? '600×800' : '800×450'} px
+                    </span>
+                    <span className="font-mono bg-blue-50 px-2 py-0.5 rounded text-blue-700 font-extrabold text-[10px]">
+                      {settings.aspectRatioType} Uniform Aspect
+                    </span>
+                  </div>
+
+                </div>
+
+                {/* Live Controls Workspace Sidebar (5 Columns) */}
+                <div className="lg:col-span-5 p-5 md:p-6 overflow-y-auto max-h-[45vh] lg:max-h-full flex flex-col justify-between bg-white gap-5 text-left">
+                  
+                  {/* Headline */}
+                  <div className="flex flex-col gap-1 pb-3 border-b border-gray-100">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Configuration</label>
+                    <span className="text-sm font-extrabold text-gray-900">Configure Perfect Shadows Live</span>
+                    <p className="text-[11px] text-gray-450 leading-relaxed mt-1">
+                      Adjust presets or use the 2D crosshair joystick to control the light direction and shadow position simultaneously on this image.
+                    </p>
+                  </div>
+
+                  {/* Interactive shadow editor parameters */}
+                  <div className="flex flex-col gap-4 flex-1">
+                    
+                    {/* Selector Preset Grid buttons */}
+                    <div className="flex flex-col gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-600 block">Presets</span>
+                      <div className="grid grid-cols-6 gap-1">
+                        {[
+                          { type: 'none', label: 'None' },
+                          { type: 'soft', label: 'Soft' },
+                          { type: 'medium', label: 'Med' },
+                          { type: 'hard', label: 'Hard' },
+                          { type: 'glow', label: 'Glow' },
+                          { type: 'custom', label: 'Custom' }
+                        ].map((preset) => {
+                          const active = settings.shadowType === preset.type;
+                          return (
+                            <button
+                              key={`modal-preset-${preset.type}`}
+                              onClick={() => {
+                                setSettings(p => ({ ...p, shadowType: preset.type as any }));
+                                showToast(`Applied ${preset.label} shadow preset effect.`, 'success');
+                              }}
+                              className={`py-1 rounded text-[9px] font-bold border cursor-pointer text-center transition-all ${
+                                active
+                                  ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                                  : 'bg-white border-gray-200 hover:bg-gray-55/10 text-gray-600'
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Safe Margin & Product Padding Slider inside Big Preview */}
+                    <div className="flex flex-col gap-2.5 p-3 bg-gray-55/40 border border-gray-150 rounded-2xl">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                          <Scale className="w-3.5 h-3.5 text-blue-600" />
+                          Safe product padding
+                        </span>
+                        <span className="font-mono text-xs text-blue-700 bg-blue-50/70 border border-blue-100 px-2 py-0.5 rounded font-extrabold shadow-none">
+                          {settings.padding}% Padding
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="range"
+                          min="0"
+                          max="40"
+                          value={settings.padding}
+                          onChange={(e) => setSettings(p => ({ ...p, padding: Number(e.target.value) }))}
+                          className="flex-1 h-1.5 rounded-lg bg-gray-200 accent-blue-600 cursor-pointer"
+                        />
+                      </div>
+                      <span className="text-[9px] text-gray-500 font-medium leading-normal block">
+                        Adjusts spacing margins inside the bounding box so custom sizes and shadows fit seamlessly.
+                      </span>
+                    </div>
+
+                    {settings.shadowType !== 'none' && (
+                      <div className="flex flex-col gap-3">
+                        
+                        {/* Type selection: outset vs inset shadow */}
+                        <div className="flex items-center justify-between gap-2.5 pb-2 border-b border-gray-100">
+                          <span className="text-xs font-bold text-gray-800">Placement Mode</span>
+                          <div className="flex bg-gray-50 p-0.5 rounded-lg border border-gray-200 text-[10px] w-36 font-extrabold shadow-inner">
+                            <button
+                              onClick={() => setSettings(p => ({ ...p, shadowType: 'custom', shadowPlacement: 'outset' }))}
+                              className={`flex-1 py-1 rounded-md cursor-pointer text-center transition-all ${
+                                settings.shadowPlacement === 'outset' 
+                                  ? 'bg-blue-600 text-white shadow-sm' 
+                                  : 'bg-transparent text-gray-600 hover:text-gray-900'
+                              }`}
+                            >
+                              Outset
+                            </button>
+                            <button
+                              onClick={() => setSettings(p => ({ ...p, shadowType: 'custom', shadowPlacement: 'inset' }))}
+                              className={`flex-1 py-1 rounded-md cursor-pointer text-center transition-all ${
+                                settings.shadowPlacement === 'inset' 
+                                  ? 'bg-blue-600 text-white shadow-sm' 
+                                  : 'bg-transparent text-gray-600 hover:text-gray-900'
+                              }`}
+                            >
+                              Inset
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Joystick controller and offset values */}
+                        <div className="flex items-center justify-between gap-4 py-0.5">
+                          <div className="flex-1 flex flex-col gap-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-gray-700 font-medium">X offset</span>
+                              <input 
+                                type="number"
+                                min="-100"
+                                max="100"
+                                value={settings.shadowOffsetX}
+                                onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowOffsetX: Math.min(100, Math.max(-100, Number(e.target.value) || 0)) }))}
+                                className="w-16 text-center border border-gray-300 bg-gray-50 focus:bg-white rounded-lg py-1 px-1 text-xs font-mono font-bold text-gray-800 outline-none focus:border-blue-500 shadow-sm transition-colors"
+                              />
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs text-gray-700 font-medium">Y offset</span>
+                              <input 
+                                type="number"
+                                min="-100"
+                                max="100"
+                                value={settings.shadowOffsetY}
+                                onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowOffsetY: Math.min(100, Math.max(-100, Number(e.target.value) || 0)) }))}
+                                className="w-16 text-center border border-gray-300 bg-gray-50 focus:bg-white rounded-lg py-1 px-1 text-xs font-mono font-bold text-gray-800 outline-none focus:border-blue-500 shadow-sm transition-colors"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Interactive modal joystick pointer */}
+                          <div 
+                            ref={modalGridRef}
+                            onPointerDown={handleModalPointerDown}
+                            onPointerMove={handleModalPointerMove}
+                            onPointerUp={handleModalPointerUp}
+                            className="w-[84px] h-[84px] border-2 border-gray-200 bg-[#fdfdfc] rounded-2xl relative overflow-hidden select-none cursor-crosshair shadow-inner"
+                            title="Drag dot to adjust offset values dynamically inside the modal"
+                          >
+                            <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-gray-300/40" />
+                            <div className="absolute inset-y-0 left-1/2 border-l border-dashed border-gray-300/40" />
+                            
+                            <div 
+                              className="absolute w-3.5 h-3.5 bg-blue-600 border-2 border-white rounded-full shadow-md -translate-x-1/2 -translate-y-1/2 hover:scale-110 active:scale-95 transition-all"
+                              style={{
+                                left: `${Math.min(95, Math.max(5, ((settings.shadowOffsetX + 40) / 80) * 100))}%`,
+                                top: `${Math.min(95, Math.max(5, ((settings.shadowOffsetY + 40) / 80) * 100))}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Blur parameter */}
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="text-xs text-gray-750 font-medium w-12 text-left">Blur</span>
+                          <input 
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={settings.shadowBlur}
+                            onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowBlur: Math.min(100, Math.max(0, Number(e.target.value) || 0)) }))}
+                            className="w-14 text-center border border-gray-300 bg-gray-50 focus:bg-white rounded-lg py-1 px-1 text-xs font-mono font-bold text-gray-800"
+                          />
+                          <input 
+                            type="range"
+                            min="0"
+                            max="60"
+                            value={settings.shadowBlur}
+                            onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowBlur: Number(e.target.value) }))}
+                            className="flex-1 h-1.5 accent-blue-600 cursor-pointer"
+                          />
+                        </div>
+
+                        {/* Spread parameter */}
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-gray-750 font-medium w-12 text-left">Spread</span>
+                          <input 
+                            type="number"
+                            min="-50"
+                            max="100"
+                            value={settings.shadowSpread}
+                            onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowSpread: Math.min(100, Math.max(-50, Number(e.target.value) || 0)) }))}
+                            className="w-14 text-center border border-gray-305 bg-gray-50 focus:bg-white rounded-lg py-1 px-1 text-xs font-mono font-bold text-gray-800"
+                          />
+                          <input 
+                            type="range"
+                            min="-20"
+                            max="40"
+                            value={settings.shadowSpread}
+                            onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowSpread: Number(e.target.value) }))}
+                            className="flex-1 h-1.5 accent-blue-600 cursor-pointer"
+                          />
+                        </div>
+
+                        {/* Opacity slider */}
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <span className="text-xs text-gray-750 font-medium w-12 text-left">Opacity</span>
+                          <span className="w-14 text-center text-xs font-bold font-mono text-gray-650 py-0.5 bg-gray-100 rounded">
+                            {Math.round(settings.shadowOpacity * 100)}%
+                          </span>
+                          <input 
+                            type="range" 
+                            min="0.05" 
+                            max="0.80" 
+                            step="0.05"
+                            value={settings.shadowOpacity}
+                            onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowOpacity: Number(e.target.value) }))}
+                            className="flex-1 h-1 cursor-pointer accent-blue-600"
+                          />
+                        </div>
+
+                        {/* Color accent */}
+                        <div className="flex items-center justify-between gap-3 bg-gray-50 p-2 rounded-xl border border-gray-100">
+                          <span className="text-[10px] text-gray-550 font-bold uppercase tracking-wider">Color Accent</span>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="color" 
+                              value={settings.shadowColor}
+                              onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowColor: e.target.value }))}
+                              className="w-7 h-6 rounded border border-gray-300 cursor-pointer bg-white"
+                            />
+                            <input 
+                              type="text" 
+                              value={settings.shadowColor}
+                              onChange={(e) => setSettings(p => ({ ...p, shadowType: 'custom', shadowColor: e.target.value }))}
+                              className="w-20 bg-white border border-gray-200 rounded-lg px-2 py-0.5 text-[11px] text-gray-700 outline-none focus:border-blue-500 font-mono font-bold text-center"
+                            />
+                          </div>
+                        </div>
+
+                      </div>
+                    )}
+
+                  </div>
+
+                  {/* GALLERY ACCORDION FOOTER / SELECTION WORKFLOW INDICATOR */}
+                  <div className="pt-4 border-t border-gray-100 mt-4 flex flex-col gap-2.5">
+                    <span className="text-[10px] uppercase tracking-wider text-gray-450 font-bold text-left block">
+                      Select Item Workflow Queue ({images.length} Loaded):
+                    </span>
+                    
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1.5 scrollbar-thin max-w-full">
+                      {images.map((img) => {
+                        const isCurrent = img.id === selectedImageId;
+                        return (
+                          <button
+                            key={`modal-thumb-${img.id}`}
+                            onClick={() => {
+                              setSelectedImageId(img.id);
+                              showToast(`Switched active element to: ${img.name}`, 'info');
+                            }}
+                            className={`relative shrink-0 w-11 h-11 rounded-lg border-2 overflow-hidden bg-[#fafafa] flex items-center justify-center cursor-pointer transition-all ${
+                              isCurrent ? 'border-blue-600 shadow scale-105' : 'border-gray-200 opacity-60 hover:opacity-100'
+                            }`}
+                            title={`Click to preview shadow output for ${img.name}`}
+                          >
+                            <img 
+                              src={img.processedUrl} 
+                              alt="Thumbnail" 
+                              className="w-full h-full object-contain block"
+                              referrerPolicy="no-referrer"
+                            />
+                            {isCurrent && (
+                              <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-blue-600 border border-white" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* Download & Conclude action buttons */}
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <button
+                        onClick={handleDownloadSingle}
+                        className="py-2.5 bg-gray-900 text-white rounded-xl text-xs font-bold hover:bg-gray-850 hover:text-white transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm active:scale-[0.98]"
+                        title="Download selected PNG/WEBP asset immediately"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download Asset
+                      </button>
+                      <button
+                        onClick={() => {
+                          setIsPreviewOpen(false);
+                          showToast('Awesome! Your changes are saved to the workspace queue.', 'success');
+                        }}
+                        className="py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-md hover:shadow-lg hover:shadow-blue-500/10 active:scale-[0.98]"
+                        title="Accept these parameters and return to basic designer studio"
+                      >
+                        Accept and Done ✓
+                      </button>
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+              
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
     </div>
   );

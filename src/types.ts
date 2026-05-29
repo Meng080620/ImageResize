@@ -34,6 +34,14 @@ export interface ResizeSettings {
   exportQuality: number; // 0.1 to 1.0 (for jpeg/webp)
   upscaleSmallImages: boolean; // Scale small images up to fill full box
   trimProductMargins: boolean; // Auto trim white/transparent margins from input product image
+  shadowType: 'none' | 'soft' | 'medium' | 'hard' | 'glow' | 'custom';
+  shadowPlacement: 'outset' | 'inset';
+  shadowSpread: number; // -50 to 100
+  shadowBlur: number; // 0 to 100
+  shadowOffsetX: number; // -100 to 100
+  shadowOffsetY: number; // -100 to 100
+  shadowOpacity: number; // 0 to 1
+  shadowColor: string; // Hex color or rgba
 }
 
 export const ASPECT_RATIOS = {

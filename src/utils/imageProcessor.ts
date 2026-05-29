@@ -347,6 +347,115 @@ export async function processImageOnCanvas(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
+  // Apply shadow configuration if user requests it
+  if (settings.shadowType && settings.shadowType !== 'none') {
+    let blur = 0;
+    let offsetX = 0;
+    let offsetY = 0;
+    let opacity = 0.2;
+    let spread = 0;
+    let placement: 'outset' | 'inset' = 'outset';
+    let color = settings.shadowColor || '#000000';
+
+    if (settings.shadowType === 'soft') {
+      blur = 15;
+      offsetX = 0;
+      offsetY = 8;
+      opacity = 0.15;
+    } else if (settings.shadowType === 'medium') {
+      blur = 25;
+      offsetX = 0;
+      offsetY = 15;
+      opacity = 0.25;
+    } else if (settings.shadowType === 'hard') {
+      blur = 2;
+      offsetX = 5;
+      offsetY = 10;
+      opacity = 0.40;
+    } else if (settings.shadowType === 'glow') {
+      blur = 20;
+      offsetX = 0;
+      offsetY = 0;
+      opacity = 0.35;
+    } else if (settings.shadowType === 'custom') {
+      blur = settings.shadowBlur !== undefined ? settings.shadowBlur : 15;
+      offsetX = settings.shadowOffsetX !== undefined ? settings.shadowOffsetX : 0;
+      offsetY = settings.shadowOffsetY !== undefined ? settings.shadowOffsetY : 8;
+      opacity = settings.shadowOpacity !== undefined ? settings.shadowOpacity : 0.2;
+      spread = settings.shadowSpread !== undefined ? settings.shadowSpread : 0;
+      placement = settings.shadowPlacement || 'outset';
+    }
+
+    // Translate hex color safely to rgba to preserve opacity sliders
+    let r = 0, g = 0, b = 0;
+    const cleanHex = color.replace('#', '');
+    if (cleanHex.length === 3) {
+      r = parseInt(cleanHex[0] + cleanHex[0], 16);
+      g = parseInt(cleanHex[1] + cleanHex[1], 16);
+      b = parseInt(cleanHex[2] + cleanHex[2], 16);
+    } else if (cleanHex.length === 6) {
+      r = parseInt(cleanHex.substring(0, 2), 16);
+      g = parseInt(cleanHex.substring(2, 4), 16);
+      b = parseInt(cleanHex.substring(4, 6), 16);
+    }
+
+    if (placement === 'inset') {
+      // Draw premium inner box-shadow inside the output canvas box boundaries
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, outputWidth, outputHeight);
+      ctx.clip();
+
+      ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+      ctx.shadowBlur = blur;
+      ctx.shadowOffsetX = offsetX;
+      ctx.shadowOffsetY = offsetY;
+
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
+
+      ctx.beginPath();
+      // Outer rect (clockwise)
+      ctx.rect(-1000, -1000, outputWidth + 2000, outputHeight + 2000);
+      // Inner hole (counter-clockwise)
+      const insetSpread = Math.max(0, spread);
+      ctx.rect(
+        insetSpread, 
+        insetSpread, 
+        outputWidth - insetSpread * 2, 
+        outputHeight - insetSpread * 2
+      );
+      ctx.fill('evenodd');
+      ctx.restore();
+    } else {
+      // Outset drop-shadow from the custom silhouette shape of our product
+      ctx.save();
+      ctx.globalAlpha = opacity;
+      if ('filter' in ctx) {
+        ctx.filter = `blur(${blur}px)`;
+      }
+
+      const silhouetteCanvas = document.createElement('canvas');
+      silhouetteCanvas.width = sourceElement.width;
+      silhouetteCanvas.height = sourceElement.height;
+      const sCtx = silhouetteCanvas.getContext('2d');
+      if (sCtx) {
+        sCtx.drawImage(sourceElement, 0, 0);
+        sCtx.globalCompositeOperation = 'source-in';
+        sCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        sCtx.fillRect(0, 0, sourceElement.width, sourceElement.height);
+      }
+
+      ctx.drawImage(
+        silhouetteCanvas,
+        drawX + offsetX - spread,
+        drawY + offsetY - spread,
+        drawW + spread * 2,
+        drawH + spread * 2
+      );
+      ctx.restore();
+    }
+  }
+
   ctx.drawImage(sourceElement, drawX, drawY, drawW, drawH);
   ctx.restore();
 
