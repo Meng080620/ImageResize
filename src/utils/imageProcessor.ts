@@ -1,9 +1,27 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { ResizeSettings } from '../types';
+import type { WorkerMessage, WorkerResponse } from '../workers/imageWorker';
+
+// Initialize a singleton Web Worker
+let workerInstance: Worker | null = null;
+const workerQueue: Record<string, { resolve: (url: string) => void, reject: (err: Error) => void }> = {};
+
+function getWorker(): Worker {
+  if (!workerInstance) {
+    workerInstance = new Worker(new URL('../workers/imageWorker.ts', import.meta.url), { type: 'module' });
+    workerInstance.onmessage = (e: MessageEvent<WorkerResponse>) => {
+      const msg = e.data;
+      if (msg.type === 'DONE') {
+        const url = URL.createObjectURL(msg.blob);
+        workerQueue[msg.id]?.resolve(url);
+        delete workerQueue[msg.id];
+      } else if (msg.type === 'ERROR') {
+        workerQueue[msg.id]?.reject(new Error(msg.error));
+        delete workerQueue[msg.id];
+      }
+    };
+  }
+  return workerInstance;
+}
 
 /**
  * Loads an image from an Object URL
@@ -19,170 +37,43 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
 }
 
 /**
- * Scans the outer margins of the image to find the average edge color.
- * This color is optimal for seamless extension background filling.
+ * Computes the correct physical dimensions for the target output
  */
-export function getBorderAverageColor(img: HTMLImageElement): string {
-  const canvas = document.createElement('canvas');
-  const size = 50; // Use small canvas for speed and natural smoothing
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return '#ffffff';
-
-  ctx.drawImage(img, 0, 0, size, size);
-
-  try {
-    const data = ctx.getImageData(0, 0, size, size).data;
-    
-    // Sum pixel colors along the extreme edges: top, bottom, left, right border
-    let rSum = 0, gSum = 0, bSum = 0, count = 0;
-    
-    const borderPixels: number[] = [];
-    
-    // Top & Bottom edges
-    for (let x = 0; x < size; x++) {
-      borderPixels.push(x, 0); // top
-      borderPixels.push(x, size - 1); // bottom
+export function computeTargetDims(
+  settings: Pick<ResizeSettings, 'aspectRatioType' | 'customWidth' | 'customHeight'>,
+  targetSize: number | 'preview'
+): { width: number; height: number } {
+  if (targetSize === 'preview') {
+    switch (settings.aspectRatioType) {
+      case '1:1': return { width: 800, height: 800 };
+      case '4:3': return { width: 800, height: 600 };
+      case '3:4': return { width: 600, height: 800 };
+      case '16:9': return { width: 800, height: 450 };
+      default: return {
+        width: Number(settings.customWidth) || 800,
+        height: Number(settings.customHeight) || 800,
+      };
     }
-    // Left & Right edges
-    for (let y = 1; y < size - 1; y++) {
-      borderPixels.push(0, y); // left
-      borderPixels.push(size - 1, y); // right
+  }
+
+  const size = targetSize;
+  switch (settings.aspectRatioType) {
+    case '1:1': return { width: size, height: size };
+    case '4:3': return { width: size, height: Math.round((size * 3) / 4) };
+    case '3:4': return { width: Math.round((size * 3) / 4), height: size };
+    case '16:9': return { width: size, height: Math.round((size * 9) / 16) };
+    default: {
+      const customW = Number(settings.customWidth) || 800;
+      const customH = Number(settings.customHeight) || 800;
+      return customW > customH
+        ? { width: size, height: Math.round((size * customH) / customW) }
+        : { width: Math.round((size * customW) / customH), height: size };
     }
-
-    for (let i = 0; i < borderPixels.length; i += 2) {
-      const px = borderPixels[i];
-      const py = borderPixels[i + 1];
-      const index = (py * size + px) * 4;
-      
-      const r = data[index];
-      const g = data[index + 1];
-      const b = data[index + 2];
-      const a = data[index + 3];
-
-      if (a > 100) { // skip transparent edges
-        rSum += r;
-        gSum += g;
-        bSum += b;
-        count++;
-      }
-    }
-
-    if (count === 0) return '#ffffff';
-
-    const rAvg = Math.round(rSum / count);
-    const gAvg = Math.round(gSum / count);
-    const bAvg = Math.round(bSum / count);
-
-    // Convert to hex
-    const toHex = (c: number) => {
-      const hex = c.toString(16);
-      return hex.length === 1 ? '0' + hex : hex;
-    };
-
-    return `#${toHex(rAvg)}${toHex(gAvg)}${toHex(bAvg)}`;
-  } catch (e) {
-    // If security block or anything, fall back to white
-    return '#ffffff';
   }
 }
 
 /**
- * Trims transparent or near-white/near-solid borders from an image.
- * This ensures padding is calculated from the actual active product subject,
- * rather than any pre-existing blank spaces in the uploaded image.
- */
-export function getTrimmedCanvas(img: HTMLImageElement): HTMLCanvasElement | null {
-  const canvas = document.createElement('canvas');
-  // Crop detection works best at high precision but needs to be fast.
-  // Constrain detection canvas to max 600px dimension for performance.
-  const maxDetectionSize = 600;
-  const scale = Math.min(1, maxDetectionSize / Math.max(img.width, img.height));
-  const w = Math.round(img.width * scale);
-  const h = Math.round(img.height * scale);
-
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  ctx.drawImage(img, 0, 0, w, h);
-  let imgData;
-  try {
-    imgData = ctx.getImageData(0, 0, w, h);
-  } catch (e) {
-    // Cross-origin safe fallback
-    return null;
-  }
-
-  const { data } = imgData;
-  let minX = w;
-  let minY = h;
-  let maxX = 0;
-  let maxY = 0;
-  let anyContentDetected = false;
-
-  // Scan all pixels to find boundaries of the active subject
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const idx = (y * w + x) * 4;
-      const r = data[idx];
-      const g = data[idx + 1];
-      const b = data[idx + 2];
-      const alpha = data[idx + 3];
-
-      // A pixel is considered part of the main product if:
-      // 1. It is not fully/mostly transparent (alpha >= 12)
-      // 2. It is not extreme near-white (all channels above 248) if we want to trim white backdrops too
-      const isTransparent = alpha < 12;
-      const isWhite = r >= 248 && g >= 248 && b >= 248 && alpha > 240;
-
-      if (!isTransparent && !isWhite) {
-        anyContentDetected = true;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-
-  // If no content is found or detection failed, return null (use original)
-  if (!anyContentDetected || minX > maxX || minY > maxY) {
-    return null;
-  }
-
-  // Translate back to the full original image size coordinates
-  const origX = Math.max(0, Math.floor(minX / scale));
-  const origY = Math.max(0, Math.floor(minY / scale));
-  const origWidth = Math.min(img.width - origX, Math.ceil((maxX - minX + 1) / scale));
-  const origHeight = Math.min(img.height - origY, Math.ceil((maxY - minY + 1) / scale));
-
-  // Safeguard: Make sure the cropped box is valid and small enough to trim
-  if (origWidth <= 2 || origHeight <= 2) {
-    return null;
-  }
-
-  // Draw the original image cropped into a new canvas
-  const croppedCanvas = document.createElement('canvas');
-  croppedCanvas.width = origWidth;
-  croppedCanvas.height = origHeight;
-  const croppedCtx = croppedCanvas.getContext('2d');
-  if (!croppedCtx) return null;
-
-  // Draw the sub-rectangle of the original image
-  croppedCtx.drawImage(
-    img, 
-    origX, origY, origWidth, origHeight, // source rectangle
-    0, 0, origWidth, origHeight          // destination rectangle
-  );
-
-  return croppedCanvas;
-}
-
-/**
- * Creates a processed image based on user configuration settings using HTML5 Canvas
+ * Creates a processed image based on user configuration using a Web Worker
  */
 export async function processImageOnCanvas(
   img: HTMLImageElement,
@@ -190,288 +81,23 @@ export async function processImageOnCanvas(
   outputWidth: number,
   outputHeight: number
 ): Promise<string> {
-  const canvas = document.createElement('canvas');
-  canvas.width = outputWidth;
-  canvas.height = outputHeight;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) throw new Error('Could not get 2D context');
+  const worker = getWorker();
+  const id = `job-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-  // 1. Draw Background
-  if (settings.bgStyle === 'transparent') {
-    ctx.clearRect(0, 0, outputWidth, outputHeight);
-  } else if (settings.bgStyle === 'solid') {
-    ctx.fillStyle = settings.backgroundColor;
-    ctx.fillRect(0, 0, outputWidth, outputHeight);
-  } else if (settings.bgStyle === 'auto') {
-    const derivedColor = getBorderAverageColor(img);
-    ctx.fillStyle = derivedColor;
-    ctx.fillRect(0, 0, outputWidth, outputHeight);
-  } else if (settings.bgStyle === 'blurred') {
-    // Render scaled/blurred image as background
-    ctx.save();
-    
-    // Draw blurred cover as baseline background
-    const bgScale = Math.max(outputWidth / img.width, outputHeight / img.height);
-    const bgW = img.width * bgScale * 1.2; // slightly larger for full bleed
-    const bgH = img.height * bgScale * 1.2;
-    const bgX = (outputWidth - bgW) / 2;
-    const bgY = (outputHeight - bgH) / 2;
-    
-    // Draw backdrop
-    ctx.drawImage(img, bgX, bgY, bgW, bgH);
-    
-    // Apply soft blur overlay using SVG-like overlay or standard browser filter (if supported)
-    // We can use a dark or light tint overlay to look nice
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.4)'; // light glass tint
-    ctx.fillRect(0, 0, outputWidth, outputHeight);
-    
-    // Let's add canvas filter blur support if supported
-    if ('filter' in ctx) {
-      // Create temporary canvas to draw blurred version to preserve layout
-      const blurCanvas = document.createElement('canvas');
-      blurCanvas.width = outputWidth;
-      blurCanvas.height = outputHeight;
-      const blurCtx = blurCanvas.getContext('2d');
-      if (blurCtx) {
-        blurCtx.filter = 'blur(15px)';
-        blurCtx.drawImage(img, bgX, bgY, bgW, bgH);
-        blurCtx.fillStyle = 'rgba(255, 255, 255, 0.45)';
-        blurCtx.fillRect(0, 0, outputWidth, outputHeight);
-        ctx.drawImage(blurCanvas, 0, 0);
-      }
-    }
-    
-    ctx.restore();
-  }
+  // Convert HTMLImageElement to ImageBitmap so we can pass it to the worker
+  const bitmap = await createImageBitmap(img);
 
-  // Define active product element (either original image or automatically trimmed canvas)
-  let sourceElement: HTMLImageElement | HTMLCanvasElement = img;
-  if (settings.trimProductMargins) {
-    const trimmed = getTrimmedCanvas(img);
-    if (trimmed) {
-      sourceElement = trimmed;
-    }
-  }
-
-  // 2. Calculate coordinates for the main image layer
-  const paddingPx = (settings.padding / 100) * Math.min(outputWidth, outputHeight);
-  const availableWidth = outputWidth - paddingPx * 2;
-  const availableHeight = outputHeight - paddingPx * 2;
-
-  let drawW = sourceElement.width;
-  let drawH = sourceElement.height;
-  let drawX = paddingPx;
-  let drawY = paddingPx;
-
-  if (settings.fitMode === 'contain') {
-    // Fits the entire image while preserving aspect ratio, ensuring no cropping
-    const imgRatio = sourceElement.width / sourceElement.height;
-    const canvasRatio = availableWidth / availableHeight;
-
-    const isSmallerThanBox = sourceElement.width < availableWidth && sourceElement.height < availableHeight;
-    if (isSmallerThanBox && !settings.upscaleSmallImages) {
-      // Skip upscaling small images if option is deactivated
-      drawW = sourceElement.width;
-      drawH = sourceElement.height;
-    } else {
-      // Scale up or down to match boundaries
-      if (imgRatio > canvasRatio) {
-        drawW = availableWidth;
-        drawH = availableWidth / imgRatio;
-      } else {
-        drawH = availableHeight;
-        drawW = availableHeight * imgRatio;
-      }
-    }
-  } else if (settings.fitMode === 'cover') {
-    // Fills the target zone, cropping overlaps if necessary
-    const imgRatio = sourceElement.width / sourceElement.height;
-    const canvasRatio = availableWidth / availableHeight;
-
-    const isSmallerThanBox = sourceElement.width < availableWidth && sourceElement.height < availableHeight;
-    if (isSmallerThanBox && !settings.upscaleSmallImages) {
-      drawW = sourceElement.width;
-      drawH = sourceElement.height;
-    } else {
-      if (imgRatio > canvasRatio) {
-        drawH = availableHeight;
-        drawW = availableHeight * imgRatio;
-      } else {
-        drawW = availableWidth;
-        drawH = availableWidth / imgRatio;
-      }
-    }
-  } else if (settings.fitMode === 'stretch') {
-    // Standard unrecommended fill stretching
-    const isSmallerThanBox = sourceElement.width < availableWidth && sourceElement.height < availableHeight;
-    if (isSmallerThanBox && !settings.upscaleSmallImages) {
-      drawW = sourceElement.width;
-      drawH = sourceElement.height;
-    } else {
-      drawW = availableWidth;
-      drawH = availableHeight;
-    }
-  }
-
-  // Position alignment calculations
-  // Center alignment:
-  let alignX = paddingPx + (availableWidth - drawW) / 2;
-  let alignY = paddingPx + (availableHeight - drawH) / 2;
-
-  // Manual alignments overrides
-  if (settings.alignment === 'top') {
-    alignY = paddingPx;
-  } else if (settings.alignment === 'bottom') {
-    alignY = outputHeight - paddingPx - drawH;
-  } else if (settings.alignment === 'left') {
-    alignX = paddingPx;
-  } else if (settings.alignment === 'right') {
-    alignX = outputWidth - paddingPx - drawW;
-  }
-
-  // Ensure canvas doesn't draw negative positions when overflowing
-  drawX = alignX;
-  drawY = alignY;
-
-  // Let's draw the final image onto the canvas
-  // If we have fitMode 'cover', we should mask/clip to the container boundaries
-  ctx.save();
-  if (settings.fitMode === 'cover') {
-    // Create clipping path for the active available boundary
-    const clipPath = new Path2D();
-    clipPath.rect(paddingPx, paddingPx, availableWidth, availableHeight);
-    ctx.clip(clipPath);
-  }
-
-  // Enabled image-smoothing
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-
-  // Apply shadow configuration if user requests it
-  if (settings.shadowType && settings.shadowType !== 'none') {
-    let blur = 0;
-    let offsetX = 0;
-    let offsetY = 0;
-    let opacity = 0.2;
-    let spread = 0;
-    let placement: 'outset' | 'inset' = 'outset';
-    let color = settings.shadowColor || '#000000';
-
-    if (settings.shadowType === 'soft') {
-      blur = 15;
-      offsetX = 0;
-      offsetY = 8;
-      opacity = 0.15;
-    } else if (settings.shadowType === 'medium') {
-      blur = 25;
-      offsetX = 0;
-      offsetY = 15;
-      opacity = 0.25;
-    } else if (settings.shadowType === 'hard') {
-      blur = 2;
-      offsetX = 5;
-      offsetY = 10;
-      opacity = 0.40;
-    } else if (settings.shadowType === 'glow') {
-      blur = 20;
-      offsetX = 0;
-      offsetY = 0;
-      opacity = 0.35;
-    } else if (settings.shadowType === 'custom') {
-      blur = settings.shadowBlur !== undefined ? settings.shadowBlur : 15;
-      offsetX = settings.shadowOffsetX !== undefined ? settings.shadowOffsetX : 0;
-      offsetY = settings.shadowOffsetY !== undefined ? settings.shadowOffsetY : 8;
-      opacity = settings.shadowOpacity !== undefined ? settings.shadowOpacity : 0.2;
-      spread = settings.shadowSpread !== undefined ? settings.shadowSpread : 0;
-      placement = settings.shadowPlacement || 'outset';
-    }
-
-    // Translate hex color safely to rgba to preserve opacity sliders
-    let r = 0, g = 0, b = 0;
-    const cleanHex = color.replace('#', '');
-    if (cleanHex.length === 3) {
-      r = parseInt(cleanHex[0] + cleanHex[0], 16);
-      g = parseInt(cleanHex[1] + cleanHex[1], 16);
-      b = parseInt(cleanHex[2] + cleanHex[2], 16);
-    } else if (cleanHex.length === 6) {
-      r = parseInt(cleanHex.substring(0, 2), 16);
-      g = parseInt(cleanHex.substring(2, 4), 16);
-      b = parseInt(cleanHex.substring(4, 6), 16);
-    }
-
-    if (placement === 'inset') {
-      // Draw premium inner box-shadow inside the output canvas box boundaries
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, outputWidth, outputHeight);
-      ctx.clip();
-
-      ctx.shadowColor = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-      ctx.shadowBlur = blur;
-      ctx.shadowOffsetX = offsetX;
-      ctx.shadowOffsetY = offsetY;
-
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${opacity})`;
-
-      ctx.beginPath();
-      // Outer rect (clockwise)
-      ctx.rect(-1000, -1000, outputWidth + 2000, outputHeight + 2000);
-      // Inner hole (counter-clockwise)
-      const insetSpread = Math.max(0, spread);
-      ctx.rect(
-        insetSpread, 
-        insetSpread, 
-        outputWidth - insetSpread * 2, 
-        outputHeight - insetSpread * 2
-      );
-      ctx.fill('evenodd');
-      ctx.restore();
-    } else {
-      // Outset drop-shadow from the custom silhouette shape of our product
-      ctx.save();
-      ctx.globalAlpha = opacity;
-      if ('filter' in ctx) {
-        ctx.filter = `blur(${blur}px)`;
-      }
-
-      const silhouetteCanvas = document.createElement('canvas');
-      silhouetteCanvas.width = sourceElement.width;
-      silhouetteCanvas.height = sourceElement.height;
-      const sCtx = silhouetteCanvas.getContext('2d');
-      if (sCtx) {
-        sCtx.drawImage(sourceElement, 0, 0);
-        sCtx.globalCompositeOperation = 'source-in';
-        sCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-        sCtx.fillRect(0, 0, sourceElement.width, sourceElement.height);
-      }
-
-      ctx.drawImage(
-        silhouetteCanvas,
-        drawX + offsetX - spread,
-        drawY + offsetY - spread,
-        drawW + spread * 2,
-        drawH + spread * 2
-      );
-      ctx.restore();
-    }
-  }
-
-  ctx.drawImage(sourceElement, drawX, drawY, drawW, drawH);
-  ctx.restore();
-
-  // Return the data URL
-  let mimeType = 'image/jpeg';
-  if (settings.exportFormat === 'png') {
-    mimeType = 'image/png';
-  } else if (settings.exportFormat === 'webp') {
-    mimeType = 'image/webp';
-  }
-
-  return canvas.toDataURL(mimeType, settings.exportQuality);
+  return new Promise((resolve, reject) => {
+    workerQueue[id] = { resolve, reject };
+    worker.postMessage(
+      { type: 'PROCESS', id, bitmap, settings, outputWidth, outputHeight } as WorkerMessage,
+      [bitmap] // Transfer the bitmap ownership to the worker for performance
+    );
+  });
 }
 
 /**
- * Downloads a simple dataUrl asset on trigger
+ * Downloads a data URL
  */
 export function downloadDataUrl(dataUrl: string, fileName: string) {
   const link = document.createElement('a');

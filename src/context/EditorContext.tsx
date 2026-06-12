@@ -1,0 +1,213 @@
+import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode, useCallback } from 'react';
+import JSZip from 'jszip';
+import { UploadedImage, ResizeSettings, ASPECT_RATIOS } from '../types';
+import { processImageOnCanvas, loadImage, computeTargetDims, downloadDataUrl } from '../utils/imageProcessor';
+import { getSampleProducts } from '../utils/sampleImages';
+import { useImageQueue } from '../hooks/useImageQueue';
+import { useImageProcessor } from '../hooks/useImageProcessor';
+
+const DEFAULT_SETTINGS: ResizeSettings = {
+  aspectRatioType: '1:1',
+  customWidth: 1000,
+  customHeight: 1000,
+  fitMode: 'contain',
+  padding: 10,
+  backgroundColor: '#ffffff',
+  bgStyle: 'solid',
+  alignment: 'center',
+  exportFormat: 'jpeg',
+  exportQuality: 0.90,
+  upscaleSmallImages: true,
+  trimProductMargins: true,
+  autoCenter: false,
+  shadowType: 'none',
+  shadowPlacement: 'outset',
+  shadowSpread: 0,
+  shadowBlur: 15,
+  shadowOffsetX: 0,
+  shadowOffsetY: 8,
+  shadowOpacity: 0.20,
+  shadowColor: '#000000',
+};
+
+interface EditorContextType {
+  images: UploadedImage[];
+  setImages: React.Dispatch<React.SetStateAction<UploadedImage[]>>;
+  selectedImageId: string | null;
+  setSelectedImageId: React.Dispatch<React.SetStateAction<string | null>>;
+  settings: ResizeSettings;
+  setSettings: React.Dispatch<React.SetStateAction<ResizeSettings>>;
+  
+  viewMode: 'split' | 'single' | 'grid';
+  setViewMode: React.Dispatch<React.SetStateAction<'split' | 'single' | 'grid'>>;
+  currentTab: 'editor' | 'sandbox';
+  setCurrentTab: React.Dispatch<React.SetStateAction<'editor' | 'sandbox'>>;
+  isPreviewOpen: boolean;
+  setIsPreviewOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  modalBg: 'checkerboard' | 'white' | 'gray' | 'dark' | 'cream';
+  setModalBg: React.Dispatch<React.SetStateAction<'checkerboard' | 'white' | 'gray' | 'dark' | 'cream'>>;
+  showAlignmentGrid: boolean;
+  setShowAlignmentGrid: React.Dispatch<React.SetStateAction<boolean>>;
+  previewZoom: number;
+  setPreviewZoom: React.Dispatch<React.SetStateAction<number>>;
+  
+  isProcessing: boolean;
+  isZipping: boolean;
+  toast: { message: string; type: 'success' | 'info' | 'error' } | null;
+  showToast: (message: string, type?: 'success' | 'info' | 'error') => void;
+  dragActive: boolean;
+  setDragActive: React.Dispatch<React.SetStateAction<boolean>>;
+  
+  exportSizeSelection: '300' | '600' | '855' | '1000' | '1200' | 'custom' | 'preview';
+  setExportSizeSelection: React.Dispatch<React.SetStateAction<'300' | '600' | '855' | '1000' | '1200' | 'custom' | 'preview'>>;
+  customExportSizeInput: number;
+  setCustomExportSizeInput: React.Dispatch<React.SetStateAction<number>>;
+
+  selectedImage: UploadedImage | null;
+  activeExportSize: number | 'preview';
+  imagesAnalysis: any[];
+  stats: any;
+  selectedImageAnalysis: any;
+
+  handleFiles: (fileList: FileList) => void;
+  handleRemoveImage: (id: string, e: React.MouseEvent) => void;
+  handleClearAll: () => void;
+  handleLoadSingleTestProduct: () => void;
+  handleOpenBigPreviewHero: () => void;
+  handleNextImage: () => void;
+  handlePrevImage: () => void;
+  handleResetSettings: () => void;
+  handleDownloadSingle: () => void;
+  handleDownloadZipWithSize: (targetSize: number | 'preview') => void;
+  onDrag: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+  moveImage: (fromIndex: number, toIndex: number) => void;
+}
+
+const EditorContext = createContext<EditorContextType | undefined>(undefined);
+
+export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [settings, setSettings] = useState<ResizeSettings>(DEFAULT_SETTINGS);
+  
+  const [viewMode, setViewMode] = useState<'split' | 'single' | 'grid'>('split');
+  const [currentTab, setCurrentTab] = useState<'editor' | 'sandbox'>('editor');
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [modalBg, setModalBg] = useState<'checkerboard' | 'white' | 'gray' | 'dark' | 'cream'>('checkerboard');
+  const [showAlignmentGrid, setShowAlignmentGrid] = useState<boolean>(false);
+  const [previewZoom, setPreviewZoom] = useState<number>(100);
+  
+  const [isZipping, setIsZipping] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  const [exportSizeSelection, setExportSizeSelection] = useState<'300' | '600' | '855' | '1000' | '1200' | 'custom' | 'preview'>('855');
+  const [customExportSizeInput, setCustomExportSizeInput] = useState<number>(1500);
+
+  const showToast = useCallback((message: string, type: 'success' | 'info' | 'error' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => {
+      setToast(prev => prev?.message === message ? null : prev);
+    }, 4500);
+  }, []);
+
+  const queue = useImageQueue(showToast);
+  const { images, setImages, selectedImageId } = queue;
+
+  const { isProcessing } = useImageProcessor(images, setImages, settings, selectedImageId);
+
+  const handleOpenBigPreviewHero = () => {
+    if (!selectedImageId) queue.handleLoadSingleTestProduct();
+    setIsPreviewOpen(true);
+  };
+
+  const handleResetSettings = () => setSettings(DEFAULT_SETTINGS);
+
+  const activeExportSize = useMemo(() => {
+    if (exportSizeSelection === 'preview') return 'preview';
+    if (exportSizeSelection === 'custom') return customExportSizeInput;
+    return Number(exportSizeSelection);
+  }, [exportSizeSelection, customExportSizeInput]);
+
+  const handleDownloadSingle = async () => {
+    const selectedImage = images.find(img => img.id === selectedImageId);
+    if (!selectedImage) return;
+    const format = settings.exportFormat;
+    const saveName = `${selectedImage.name.substring(0, selectedImage.name.lastIndexOf('.')) || selectedImage.name}.${format}`;
+    try {
+      const imgElem = await loadImage(selectedImage.originalUrl);
+      const { width, height } = computeTargetDims(settings, activeExportSize);
+      const url = await processImageOnCanvas(imgElem, settings, width, height);
+      downloadDataUrl(url, saveName);
+      showToast(`Downloaded: ${saveName}`, 'success');
+    } catch (e) {
+      showToast('Error exporting image.', 'error');
+    }
+  };
+
+  const handleDownloadZipWithSize = async (targetSize: number | 'preview') => {
+    if (images.length === 0) return;
+    setIsZipping(true);
+    const zip = new JSZip();
+    try {
+      for (const item of images) {
+        const imgElem = await loadImage(item.originalUrl);
+        const { width, height } = computeTargetDims(settings, targetSize);
+        const processedUrl = await processImageOnCanvas(imgElem, settings, width, height);
+        const blob = await (await fetch(processedUrl)).blob();
+        const baseName = item.name.substring(0, item.name.lastIndexOf('.')) || item.name;
+        zip.file(`${baseName}.${settings.exportFormat}`, blob);
+      }
+      const content = await zip.generateAsync({ type: 'blob' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(content);
+      link.download = `exported_images.zip`;
+      link.click();
+      showToast('Exported ZIP archive!', 'success');
+    } catch (e) {
+      showToast('Error packaging ZIP.', 'error');
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
+  const selectedImage = useMemo(() => images.find(img => img.id === selectedImageId) || null, [images, selectedImageId]);
+
+  const imagesAnalysis = useMemo(() => {
+    return images.map(img => {
+      const issues = [];
+      if (img.width < 500 || img.height < 500) issues.push('Low resolution');
+      const ratio = img.width / img.height;
+      if (ratio > 2.2 || ratio < 0.45) issues.push('Extreme aspect ratio');
+      return { ...img, issues, hasIssue: issues.length > 0, isDone: !!img.processedUrl && img.processedUrl !== img.originalUrl };
+    });
+  }, [images]);
+
+  const stats = useMemo(() => {
+    const totalDone = imagesAnalysis.filter(x => x.isDone).length;
+    const totalIssues = imagesAnalysis.filter(x => x.hasIssue).length;
+    return { total: imagesAnalysis.length, totalDone, totalIssues, hasIssue: totalIssues > 0 };
+  }, [imagesAnalysis]);
+
+  const selectedImageAnalysis = useMemo(() => selectedImage ? imagesAnalysis.find(x => x.id === selectedImage.id) : null, [imagesAnalysis, selectedImage]);
+
+  return (
+    <EditorContext.Provider value={{
+      ...queue,
+      settings, setSettings,
+      viewMode, setViewMode, currentTab, setCurrentTab, isPreviewOpen, setIsPreviewOpen,
+      modalBg, setModalBg, showAlignmentGrid, setShowAlignmentGrid, previewZoom, setPreviewZoom,
+      isProcessing, isZipping, toast, showToast,
+      exportSizeSelection, setExportSizeSelection, customExportSizeInput, setCustomExportSizeInput,
+      selectedImage, activeExportSize, imagesAnalysis, stats, selectedImageAnalysis,
+      handleOpenBigPreviewHero, handleResetSettings,
+      handleDownloadSingle, handleDownloadZipWithSize
+    }}>
+      {children}
+    </EditorContext.Provider>
+  );
+};
+
+export const useEditor = () => {
+  const context = useContext(EditorContext);
+  if (!context) throw new Error('useEditor must be used within an EditorProvider');
+  return context;
+};

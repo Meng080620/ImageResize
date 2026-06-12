@@ -34,6 +34,7 @@ export interface ResizeSettings {
   exportQuality: number; // 0.1 to 1.0 (for jpeg/webp)
   upscaleSmallImages: boolean; // Scale small images up to fill full box
   trimProductMargins: boolean; // Auto trim white/transparent margins from input product image
+  autoCenter: boolean; // Auto-detect center of mass and align it
   shadowType: 'none' | 'soft' | 'medium' | 'hard' | 'glow' | 'custom';
   shadowPlacement: 'outset' | 'inset';
   shadowSpread: number; // -50 to 100

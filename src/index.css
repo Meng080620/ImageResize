@@ -7,12 +7,40 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+body {
+  background-color: #09090b;
+  color: #f4f4f5;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Custom styles for e-commerce preview grids and interactive checks */
 .checkerboard-bg {
   background-image: linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
                     linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
                     linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
                     linear-gradient(-45deg, transparent 75%, #f3f4f6 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+}
+
+.checkerboard-bg-dark {
+  background-image: linear-gradient(45deg, #27272a 25%, transparent 25%),
+                    linear-gradient(-45deg, #27272a 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, #27272a 75%),
+                    linear-gradient(-45deg, transparent 75%, #27272a 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
 }
@@ -26,9 +54,9 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: #3f3f46;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #9ca3af;
+  background: #52525b;
 }
