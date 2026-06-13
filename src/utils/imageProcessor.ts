@@ -160,6 +160,17 @@ export function effectiveSourceUrl(
  */
 export type BgStage = 'download' | 'process';
 
+/**
+ * Prefer the WebGPU backend when the browser exposes it — ISNet inference on the
+ * GPU is ~4–10× faster than the WASM-SIMD CPU path, which is what turns a large
+ * "remove background — all" batch from minutes into something tolerable. We feature-
+ * detect rather than force 'gpu' because the library won't fall back on its own,
+ * and Safari/older Chromium lack `navigator.gpu`. CPU stays the safe default.
+ */
+function pickBgDevice(): 'cpu' | 'gpu' {
+  return typeof navigator !== 'undefined' && 'gpu' in navigator ? 'gpu' : 'cpu';
+}
+
 export async function removeImageBackground(
   srcUrl: string,
   onProgress?: (percent: number, stage: BgStage) => void,
@@ -179,6 +190,8 @@ export async function removeImageBackground(
 
   const blob = await removeBackground(srcUrl, {
     model: 'isnet_fp16',
+    device: pickBgDevice(),     // WebGPU when available, else CPU — see pickBgDevice
+    proxyToWorker: true,        // run inference off the main thread so the UI stays responsive during a batch
     output: { format: 'image/png' },
     progress: onProgress
       ? (key, current, total) => {
