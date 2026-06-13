@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode, useCallback } from 'react';
 import JSZip from 'jszip';
 import { UploadedImage, ResizeSettings, ASPECT_RATIOS } from '../types';
-import { processImageOnCanvas, loadImage, computeTargetDims, downloadDataUrl, removeImageBackground, effectiveSourceUrl } from '../utils/imageProcessor';
+import { processImageOnCanvas, loadImage, computeTargetDims, downloadDataUrl, removeImageBackground, upscaleImage, effectiveSourceUrl } from '../utils/imageProcessor';
 import { getSampleProducts } from '../utils/sampleImages';
 import { useImageQueue } from '../hooks/useImageQueue';
 import { useImageProcessor } from '../hooks/useImageProcessor';
@@ -87,6 +87,9 @@ interface EditorContextType {
   bgProgress: number | null;        // 0–100 for the active removal, null when idle
   bgStage: 'download' | 'process' | null;
   bgBatch: { done: number; total: number } | null; // set while a batch removal runs
+  handleUpscale: (id: string, factor: 2 | 4) => void;
+  isUpscaling: (id: string) => boolean;
+  upscaleProgress: number | null;   // 0–100 for the active upscale, null when idle
   handleDownloadSingle: () => void;
   handleDownloadZipWithSize: (targetSize: number | 'preview') => void;
   onDrag: (e: React.DragEvent) => void;
@@ -171,7 +174,11 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
     showToast('Removing background — first run downloads the model (~40MB)…', 'info');
     try {
-      await computeCutout(id, target.originalUrl);
+      // Compose on the upscaled source when present so "upscale → remove bg"
+      // yields a hi-res cutout. The reverse order (remove bg → upscale) also
+      // works; it's just driven from the upscale handler instead.
+      const bgSource = target.upscaled && target.upscaledUrl ? target.upscaledUrl : target.originalUrl;
+      await computeCutout(id, bgSource);
       showToast('Background removed.', 'success');
     } catch (e) {
       showToast('Background removal failed.', 'error');
@@ -209,6 +216,45 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     setBgBatch(null);
     showToast(failed > 0 ? `Done — ${failed} failed.` : 'Removed backgrounds for all images.', failed > 0 ? 'error' : 'success');
   }, [images, bgBatch, bgProcessingIds, setImages, showToast, computeCutout]);
+
+  // AI upscaling mirrors background removal: an explicit, non-destructive toggle.
+  // Compute the enlarged version once, then flip `upscaled` on/off for free.
+  // v1 is per-image only (no batch — TF.js inference is heavy; revisit if needed).
+  const [upscaleProcessingIds, setUpscaleProcessingIds] = useState<Set<string>>(new Set());
+  const [upscaleProgress, setUpscaleProgress] = useState<number | null>(null);
+  const isUpscaling = useCallback((id: string) => upscaleProcessingIds.has(id), [upscaleProcessingIds]);
+
+  const computeUpscale = useCallback(async (id: string, srcUrl: string, factor: 2 | 4) => {
+    setUpscaleProcessingIds(prev => new Set(prev).add(id));
+    setUpscaleProgress(0);
+    try {
+      const upscaledUrl = await upscaleImage(srcUrl, factor, setUpscaleProgress);
+      setImages(prev => prev.map(img => img.id === id ? { ...img, upscaledUrl, upscaled: true } : img));
+    } finally {
+      setUpscaleProcessingIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+      setUpscaleProgress(null);
+    }
+  }, [setImages]);
+
+  const handleUpscale = useCallback(async (id: string, factor: 2 | 4) => {
+    const target = images.find(img => img.id === id);
+    if (!target || upscaleProcessingIds.has(id)) return;
+
+    // Already upscaled at some factor — just toggle which source the pipeline reads.
+    if (target.upscaledUrl) {
+      setImages(prev => prev.map(img => img.id === id ? { ...img, upscaled: !img.upscaled } : img));
+      showToast(target.upscaled ? 'Upscale removed.' : 'Upscale restored.', target.upscaled ? 'info' : 'success');
+      return;
+    }
+
+    showToast('Upscaling — first run downloads the AI model…', 'info');
+    try {
+      await computeUpscale(id, target.originalUrl, factor);
+      showToast(`Upscaled ${factor}×.`, 'success');
+    } catch (e) {
+      showToast('Upscale failed.', 'error');
+    }
+  }, [images, upscaleProcessingIds, setImages, showToast, computeUpscale]);
 
   const activeExportSize = useMemo(() => {
     if (exportSizeSelection === 'preview') return 'preview';
@@ -290,6 +336,7 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       handleOpenBigPreviewHero, handleResetSettings,
       handleRemoveBackground, handleRemoveBackgroundAll, isBgProcessing,
       bgProgress, bgStage, bgBatch,
+      handleUpscale, isUpscaling, upscaleProgress,
       handleDownloadSingle, handleDownloadZipWithSize
     }}>
       {children}

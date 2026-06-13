@@ -104,22 +104,39 @@ export function revokeProcessedUrl(oldUrl: string, originalUrl: string, newUrl: 
 }
 
 /** Frees every object URL an image holds when it leaves the queue (remove/clear). */
-export function revokeImageUrls(img: Pick<UploadedImage, 'originalUrl' | 'processedUrl' | 'cutoutUrl'>) {
-  const { originalUrl, processedUrl, cutoutUrl } = img;
-  if (processedUrl.startsWith('blob:') && processedUrl !== originalUrl && processedUrl !== cutoutUrl) {
+export function revokeImageUrls(img: Pick<UploadedImage, 'originalUrl' | 'processedUrl' | 'cutoutUrl' | 'upscaledUrl'>) {
+  const { originalUrl, processedUrl, cutoutUrl, upscaledUrl } = img;
+  // The processed preview is a derived blob; only free it if it isn't aliasing
+  // a source URL we still own (original / cutout / upscaled).
+  if (
+    processedUrl.startsWith('blob:') &&
+    processedUrl !== originalUrl &&
+    processedUrl !== cutoutUrl &&
+    processedUrl !== upscaledUrl
+  ) {
     URL.revokeObjectURL(processedUrl);
   }
   if (cutoutUrl && cutoutUrl.startsWith('blob:')) URL.revokeObjectURL(cutoutUrl);
+  if (upscaledUrl && upscaledUrl.startsWith('blob:')) URL.revokeObjectURL(upscaledUrl);
   if (originalUrl.startsWith('blob:')) URL.revokeObjectURL(originalUrl);
 }
 
 /**
- * The source the resize pipeline should draw from: the transparent cutout when
- * background removal is active for this image, otherwise the pristine original.
- * Keeping both lets "remove background" be a non-destructive, undoable toggle.
+ * The source the resize pipeline should draw from. Precedence:
+ *   1. transparent cutout, when background removal is active;
+ *   2. AI-upscaled version, when upscaling is active;
+ *   3. the pristine original.
+ * Cutout wins because it's normally computed *from* the upscaled source (see
+ * EditorContext.handleRemoveBackground), so it already carries the upscale.
+ * Keeping all three lets both "remove background" and "upscale" be
+ * non-destructive, independently undoable toggles.
  */
-export function effectiveSourceUrl(img: Pick<UploadedImage, 'originalUrl' | 'cutoutUrl' | 'bgRemoved'>): string {
-  return img.bgRemoved && img.cutoutUrl ? img.cutoutUrl : img.originalUrl;
+export function effectiveSourceUrl(
+  img: Pick<UploadedImage, 'originalUrl' | 'cutoutUrl' | 'bgRemoved' | 'upscaledUrl' | 'upscaled'>,
+): string {
+  if (img.bgRemoved && img.cutoutUrl) return img.cutoutUrl;
+  if (img.upscaled && img.upscaledUrl) return img.upscaledUrl;
+  return img.originalUrl;
 }
 
 /**
@@ -182,6 +199,55 @@ export async function removeImageBackground(
       : undefined,
   });
   return URL.createObjectURL(blob);
+}
+
+/**
+ * Client-side AI super-resolution (ESRGAN-slim via UpscalerJS + TF.js, no server).
+ * Returns a blob URL for the enlarged PNG. Used to rescue low-res product photos
+ * that would otherwise go blurry when naively stretched to the 855/1000/1200px
+ * export sizes.
+ *
+ * UpscalerJS, its model, and the whole of TF.js (~1MB+) are dynamically imported
+ * so they stay out of the initial bundle — same lazy-load discipline as
+ * `removeImageBackground`. A user who never upscales never pays the download.
+ *
+ * `patchSize` tiles the image through the GPU so a large photo doesn't OOM WebGL;
+ * `padding` overlaps the tiles to hide seams. `onProgress` maps the library's
+ * 0..1 tiling progress to 0–100.
+ *
+ * The model variant is selected by `factor`: esrgan-slim ships dedicated 2x/4x
+ * weights (a 4x model, not 2x applied twice), so quality holds at 4x.
+ */
+export async function upscaleImage(
+  srcUrl: string,
+  factor: 2 | 4,
+  onProgress?: (percent: number) => void,
+): Promise<string> {
+  const [{ default: Upscaler }, modelMod] = await Promise.all([
+    import('upscaler'),
+    factor === 4 ? import('@upscalerjs/esrgan-slim/4x') : import('@upscalerjs/esrgan-slim/2x'),
+  ]);
+
+  const img = await loadImage(srcUrl);
+  const upscaler = new Upscaler({ model: modelMod.default });
+
+  try {
+    const result = await upscaler.upscale(img, {
+      patchSize: 64,
+      padding: 2,
+      progress: (amount: number) => onProgress?.(Math.min(100, Math.round(amount * 100))),
+    });
+
+    // upscale() returns a base64 data URL by default; normalize then materialize
+    // a blob URL so the rest of the pipeline treats it like every other source.
+    const dataUrl = result.startsWith('data:') ? result : `data:image/png;base64,${result}`;
+    const blob = await (await fetch(dataUrl)).blob();
+    return URL.createObjectURL(blob);
+  } finally {
+    // Free the TF.js tensors/model this instance allocated; the lazy chunk stays
+    // cached, but the GPU memory must be released or repeated upscales leak it.
+    await upscaler.dispose();
+  }
 }
 
 /**

@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { describe, it, expect } from 'vitest';
-import { computeTargetDims, shouldRevokeProcessedUrl } from './imageProcessor';
-import type { ResizeSettings } from '../types';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { computeTargetDims, shouldRevokeProcessedUrl, effectiveSourceUrl, revokeImageUrls } from './imageProcessor';
+import type { ResizeSettings, UploadedImage } from '../types';
 
 type Dims = Pick<ResizeSettings, 'aspectRatioType' | 'customWidth' | 'customHeight'>;
 
@@ -71,5 +71,75 @@ describe('shouldRevokeProcessedUrl', () => {
 
   it('skips a no-op replace where old and new are the same URL', () => {
     expect(shouldRevokeProcessedUrl('blob:same', 'blob:original', 'blob:same')).toBe(false);
+  });
+});
+
+describe('effectiveSourceUrl', () => {
+  // Precedence is where the non-destructive toggles compose. Getting this wrong
+  // means an enabled toggle silently reads the wrong source.
+  type Src = Pick<UploadedImage, 'originalUrl' | 'cutoutUrl' | 'bgRemoved' | 'upscaledUrl' | 'upscaled'>;
+  const src = (o: Partial<Src> = {}): Src => ({ originalUrl: 'blob:orig', ...o });
+
+  it('falls back to the original when nothing is toggled', () => {
+    expect(effectiveSourceUrl(src())).toBe('blob:orig');
+  });
+
+  it('reads the upscaled source when upscale is on', () => {
+    expect(effectiveSourceUrl(src({ upscaled: true, upscaledUrl: 'blob:up' }))).toBe('blob:up');
+  });
+
+  it('reads the cutout when background removal is on', () => {
+    expect(effectiveSourceUrl(src({ bgRemoved: true, cutoutUrl: 'blob:cut' }))).toBe('blob:cut');
+  });
+
+  it('cutout wins over upscale when both are on (cutout is computed from the upscaled source)', () => {
+    const img = src({ bgRemoved: true, cutoutUrl: 'blob:cut', upscaled: true, upscaledUrl: 'blob:up' });
+    expect(effectiveSourceUrl(img)).toBe('blob:cut');
+  });
+
+  it('ignores a stale url when its flag is off', () => {
+    expect(effectiveSourceUrl(src({ upscaled: false, upscaledUrl: 'blob:up' }))).toBe('blob:orig');
+    expect(effectiveSourceUrl(src({ bgRemoved: false, cutoutUrl: 'blob:cut' }))).toBe('blob:orig');
+  });
+});
+
+describe('revokeImageUrls', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  type Owned = Pick<UploadedImage, 'originalUrl' | 'processedUrl' | 'cutoutUrl' | 'upscaledUrl'>;
+  const revoked = () => {
+    const spy = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    return spy;
+  };
+
+  it('frees the upscaled blob along with original/processed/cutout', () => {
+    const spy = revoked();
+    const img: Owned = {
+      originalUrl: 'blob:orig',
+      processedUrl: 'blob:proc',
+      cutoutUrl: 'blob:cut',
+      upscaledUrl: 'blob:up',
+    };
+    revokeImageUrls(img);
+    expect(spy.mock.calls.map(c => c[0]).sort()).toEqual(['blob:cut', 'blob:orig', 'blob:proc', 'blob:up']);
+  });
+
+  it('does not free a processed url still aliasing the upscaled source', () => {
+    const spy = revoked();
+    const img: Owned = {
+      originalUrl: 'blob:orig',
+      processedUrl: 'blob:up', // preview is showing the upscaled source directly
+      upscaledUrl: 'blob:up',
+    };
+    revokeImageUrls(img);
+    const calls = spy.mock.calls.map(c => c[0]);
+    // 'blob:up' freed once (as upscaledUrl), never twice via the processed alias.
+    expect(calls.filter(u => u === 'blob:up')).toHaveLength(1);
+  });
+
+  it('ignores remote (non-blob) urls', () => {
+    const spy = revoked();
+    revokeImageUrls({ originalUrl: 'https://cdn/o.png', processedUrl: 'https://cdn/p.png' });
+    expect(spy).not.toHaveBeenCalled();
   });
 });

@@ -15,6 +15,8 @@ export interface UploadedImage {
   aspectRatio: number;
   cutoutUrl?: string; // Transparent-background version (blob URL), computed on demand
   bgRemoved?: boolean; // When true, the resize pipeline reads from cutoutUrl instead of originalUrl
+  upscaledUrl?: string; // AI super-resolution version (blob URL), computed on demand
+  upscaled?: boolean; // When true, the pipeline reads from upscaledUrl instead of originalUrl
 }
 
 export type AspectRatioType = '1:1' | '4:3' | '3:4' | '16:9' | 'custom';
