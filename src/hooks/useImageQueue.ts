@@ -1,6 +1,7 @@
 import { useState, useCallback, type DragEvent, type MouseEvent } from 'react';
 import { UploadedImage } from '../types';
 import { getSampleProducts } from '../utils/sampleImages';
+import { revokeImageUrls } from '../utils/imageProcessor';
 
 export function useImageQueue(showToast: (msg: string, type?: 'success' | 'error' | 'info') => void) {
   const [images, setImages] = useState<UploadedImage[]>([]);
@@ -68,6 +69,8 @@ export function useImageQueue(showToast: (msg: string, type?: 'success' | 'error
   const handleRemoveImage = useCallback((id: string, e: MouseEvent) => {
     e.stopPropagation();
     setImages(prev => {
+      const removed = prev.find(img => img.id === id);
+      if (removed) revokeImageUrls(removed);
       const next = prev.filter(img => img.id !== id);
       if (selectedImageId === id) setSelectedImageId(next.length > 0 ? next[0].id : null);
       return next;
@@ -75,7 +78,10 @@ export function useImageQueue(showToast: (msg: string, type?: 'success' | 'error
   }, [selectedImageId]);
 
   const handleClearAll = useCallback(() => {
-    setImages([]);
+    setImages(prev => {
+      prev.forEach(img => revokeImageUrls(img));
+      return [];
+    });
     setSelectedImageId(null);
   }, []);
 

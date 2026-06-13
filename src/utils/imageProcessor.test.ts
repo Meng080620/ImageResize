@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { computeTargetDims } from './imageProcessor';
+import { computeTargetDims, shouldRevokeProcessedUrl } from './imageProcessor';
 import type { ResizeSettings } from '../types';
 
 type Dims = Pick<ResizeSettings, 'aspectRatioType' | 'customWidth' | 'customHeight'>;
@@ -50,5 +50,26 @@ describe('computeTargetDims', () => {
 
   it('preview falls back to 800 when custom dimensions are missing/zero', () => {
     expect(computeTargetDims(dims('custom', 0, 0), 'preview')).toEqual({ width: 800, height: 800 });
+  });
+});
+
+describe('shouldRevokeProcessedUrl', () => {
+  // The leak fix: every settings change mints a new processed blob URL and the
+  // old one must be freed. These guards stop the free from blanking a live image.
+  it('revokes a stale processed blob that is being replaced', () => {
+    expect(shouldRevokeProcessedUrl('blob:old', 'blob:original', 'blob:new')).toBe(true);
+  });
+
+  it('never revokes the image original (first render: processed === original)', () => {
+    // On first process, the old processedUrl is still a copy of originalUrl.
+    expect(shouldRevokeProcessedUrl('blob:original', 'blob:original', 'blob:new')).toBe(false);
+  });
+
+  it('never revokes a remote (sample) URL — only blob: URLs are ours to free', () => {
+    expect(shouldRevokeProcessedUrl('https://cdn/sample.png', 'https://cdn/sample.png', 'blob:new')).toBe(false);
+  });
+
+  it('skips a no-op replace where old and new are the same URL', () => {
+    expect(shouldRevokeProcessedUrl('blob:same', 'blob:original', 'blob:same')).toBe(false);
   });
 });

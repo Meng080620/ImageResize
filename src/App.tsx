@@ -12,7 +12,7 @@ const AppContent: React.FC = () => {
   const { currentTab, toast, isPreviewOpen, setIsPreviewOpen, selectedImage, settings, modalBg, showAlignmentGrid, setShowAlignmentGrid, previewZoom, setPreviewZoom } = useEditor();
 
   return (
-    <div className="min-h-screen bg-[#09090b] text-zinc-100 font-sans flex flex-col selection:bg-blue-500/30 antialiased">
+    <div className="min-h-screen bg-base text-content font-sans flex flex-col selection:bg-blue-500/30 antialiased">
       
       {/* Dynamic Toast Notifications */}
       <AnimatePresence>
@@ -21,12 +21,12 @@ const AppContent: React.FC = () => {
             initial={{ opacity: 0, y: -50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
-            className="fixed top-6 right-6 z-50 shadow-lg rounded-lg border border-white/10 overflow-hidden"
+            className="fixed top-6 right-6 z-50 shadow-lg rounded-lg border border-line-strong overflow-hidden"
           >
             <div className={`p-3.5 flex items-center gap-3 backdrop-blur-xl ${
-              toast.type === 'success' ? 'bg-[#18181b]/95 text-green-400 border-l-2 border-l-green-500' :
-              toast.type === 'error' ? 'bg-[#18181b]/95 text-red-400 border-l-2 border-l-red-500' :
-              'bg-[#18181b]/95 text-blue-400 border-l-2 border-l-blue-500'
+              toast.type === 'success' ? 'bg-surface/95 text-green-400 border-l-2 border-l-green-500' :
+              toast.type === 'error' ? 'bg-surface/95 text-red-400 border-l-2 border-l-red-500' :
+              'bg-surface/95 text-blue-400 border-l-2 border-l-blue-500'
             }`}>
               {toast.type === 'success' && <CheckCircle className="w-4 h-4 text-green-500" />}
               {toast.type === 'error' && <XCircle className="w-4 h-4 text-red-500" />}
@@ -68,13 +68,13 @@ const AppContent: React.FC = () => {
         </AnimatePresence>
       </main>
 
-      <footer className="border-t border-white/5 py-6 mt-12 px-6">
-        <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-zinc-600 gap-3">
+      <footer className="border-t border-line py-6 mt-12 px-6">
+        <div className="max-w-[1600px] mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-faint gap-3">
           <p>© 2026 Image Resize. Client-side processing only.</p>
           <div className="flex items-center gap-4">
-            <span className="hover:text-zinc-400 transition-colors">100% Secure</span>
+            <span className="hover:text-muted transition-colors">100% Secure</span>
             <span>•</span>
-            <span className="hover:text-zinc-400 transition-colors">Fast Render</span>
+            <span className="hover:text-muted transition-colors">Fast Render</span>
           </div>
         </div>
       </footer>
@@ -91,51 +91,51 @@ const AppContent: React.FC = () => {
             <motion.div 
               initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 15 }}
               transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
-              className="bg-[#18181b] rounded-xl overflow-hidden shadow-2xl border border-white/10 max-w-5xl w-full flex flex-col z-10 relative"
+              className="bg-surface rounded-xl overflow-hidden shadow-2xl border border-line-strong max-w-5xl w-full flex flex-col z-10 relative"
             >
-              <div className="flex items-center justify-between p-4 px-6 border-b border-white/5 bg-[#09090b]">
+              <div className="flex items-center justify-between p-4 px-6 border-b border-line bg-base">
                 <div className="flex items-center gap-3">
                   <div className="p-1.5 bg-blue-500/10 text-blue-500 rounded-md">
                     <Sparkles className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-sm text-zinc-100 tracking-tight">Expanded Preview</h3>
-                    <p className="text-[10px] text-zinc-500">{selectedImage.name}</p>
+                    <h3 className="font-semibold text-sm text-content tracking-tight">Expanded Preview</h3>
+                    <p className="text-[10px] text-faint">{selectedImage.name}</p>
                   </div>
                 </div>
                 <button 
                   onClick={() => setIsPreviewOpen(false)}
-                  className="p-1.5 hover:bg-[#27272a] rounded-md text-zinc-400 hover:text-zinc-100 transition-colors"
+                  className="p-1.5 hover:bg-elevated rounded-md text-muted hover:text-content transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="p-6 flex flex-col bg-[#09090b]">
+              <div className="p-6 flex flex-col bg-base">
                 <div className="flex items-center justify-between gap-4 mb-4">
                   <div className="flex items-center gap-4">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input 
                         type="checkbox" checked={showAlignmentGrid} onChange={(e) => setShowAlignmentGrid(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded bg-zinc-800 accent-blue-500 border-white/10"
+                        className="w-3.5 h-3.5 rounded bg-track accent-blue-500 border-line-strong"
                       />
-                      <span className="text-zinc-400 text-xs font-medium">Grid Lines</span>
+                      <span className="text-muted text-xs font-medium">Grid Lines</span>
                     </label>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="text-zinc-500">Zoom</span>
+                    <span className="text-faint">Zoom</span>
                     <input 
                       type="range" min="50" max="150" value={previewZoom} onChange={(e) => setPreviewZoom(Number(e.target.value))}
-                      className="w-24 h-1.5 rounded-lg bg-zinc-800 accent-blue-500"
+                      className="w-24 h-1.5 rounded-lg bg-track accent-blue-500"
                     />
-                    <span className="text-zinc-300 w-8 text-right">{previewZoom}%</span>
+                    <span className="text-muted w-8 text-right">{previewZoom}%</span>
                   </div>
                 </div>
 
                 <div className="w-full flex justify-center items-center py-4">
                   <div 
-                    className={`relative transition-all rounded-lg overflow-hidden flex items-center justify-center border border-white/10 ${
-                      modalBg === 'checkerboard' ? 'checkerboard-bg-dark' : ''
+                    className={`relative transition-all rounded-lg overflow-hidden flex items-center justify-center border border-line-strong ${
+                      modalBg === 'checkerboard' ? 'checkerboard' : ''
                     }`}
                     style={{
                       aspectRatio: settings.aspectRatioType === 'custom' ? `${settings.customWidth}/${settings.customHeight}` : settings.aspectRatioType.replace(':', '/'),

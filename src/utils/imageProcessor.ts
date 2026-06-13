@@ -1,26 +1,187 @@
-import { ResizeSettings } from '../types';
+import { ResizeSettings, UploadedImage } from '../types';
 import type { WorkerMessage, WorkerResponse } from '../workers/imageWorker';
 
-// Initialize a singleton Web Worker
-let workerInstance: Worker | null = null;
-const workerQueue: Record<string, { resolve: (url: string) => void, reject: (err: Error) => void }> = {};
+/**
+ * Pool size. Each worker owns its own OffscreenCanvas(es), so concurrency trades
+ * throughput against memory. Capped at 4: a 1000² RGBA canvas is ~4MB and the
+ * worker allocates several transient canvases per job, so an unbounded pool sized
+ * to a 16-core machine would OOM on a 100-image batch. 4 saturates a typical
+ * batch without the memory blowup — tune only after profiling a real workload.
+ */
+const POOL_SIZE = Math.max(1, Math.min(navigator.hardwareConcurrency || 4, 4));
 
-function getWorker(): Worker {
-  if (!workerInstance) {
-    workerInstance = new Worker(new URL('../workers/imageWorker.ts', import.meta.url), { type: 'module' });
-    workerInstance.onmessage = (e: MessageEvent<WorkerResponse>) => {
-      const msg = e.data;
-      if (msg.type === 'DONE') {
-        const url = URL.createObjectURL(msg.blob);
-        workerQueue[msg.id]?.resolve(url);
-        delete workerQueue[msg.id];
-      } else if (msg.type === 'ERROR') {
-        workerQueue[msg.id]?.reject(new Error(msg.error));
-        delete workerQueue[msg.id];
-      }
-    };
+interface PoolJob {
+  message: WorkerMessage;
+  transfer: Transferable[];
+  resolve: (url: string) => void;
+  reject: (err: Error) => void;
+}
+
+/**
+ * Round-robin-ish pool that dispatches each job to an idle worker and queues the
+ * rest. A single worker serialized the whole batch on every settings change; the
+ * pool lets `navigator.hardwareConcurrency` jobs run in parallel.
+ */
+class ImageWorkerPool {
+  private workers: Worker[] = [];
+  private idle: Worker[] = [];
+  private queue: PoolJob[] = [];
+  private busyWith = new Map<Worker, PoolJob>();
+
+  private ensureSpawned() {
+    if (this.workers.length > 0) return;
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const worker = new Worker(new URL('../workers/imageWorker.ts', import.meta.url), { type: 'module' });
+      worker.onmessage = (e: MessageEvent<WorkerResponse>) => this.handleDone(worker, e.data);
+      // Module-load / uncaught worker failure: fail the in-flight job rather than hang.
+      worker.onerror = () => {
+        const job = this.busyWith.get(worker);
+        if (job) {
+          job.reject(new Error('Image worker crashed'));
+          this.release(worker);
+        }
+      };
+      this.workers.push(worker);
+      this.idle.push(worker);
+    }
   }
-  return workerInstance;
+
+  private handleDone(worker: Worker, msg: WorkerResponse) {
+    const job = this.busyWith.get(worker);
+    if (job) {
+      if (msg.type === 'DONE') job.resolve(URL.createObjectURL(msg.blob));
+      else job.reject(new Error(msg.error));
+    }
+    this.release(worker);
+  }
+
+  private release(worker: Worker) {
+    this.busyWith.delete(worker);
+    this.idle.push(worker);
+    this.pump();
+  }
+
+  private pump() {
+    while (this.idle.length > 0 && this.queue.length > 0) {
+      const worker = this.idle.pop()!;
+      const job = this.queue.shift()!;
+      this.busyWith.set(worker, job);
+      worker.postMessage(job.message, job.transfer);
+    }
+  }
+
+  run(message: WorkerMessage, transfer: Transferable[]): Promise<string> {
+    this.ensureSpawned();
+    return new Promise((resolve, reject) => {
+      this.queue.push({ message, transfer, resolve, reject });
+      this.pump();
+    });
+  }
+}
+
+let pool: ImageWorkerPool | null = null;
+function getPool(): ImageWorkerPool {
+  if (!pool) pool = new ImageWorkerPool();
+  return pool;
+}
+
+/**
+ * Whether a stale `processedUrl` is safe to revoke. Guards the two ways a revoke
+ * would blank a live image: (1) only `blob:` URLs are ours to free — sample
+ * products use remote http URLs; (2) never free a URL still referenced as the
+ * image's original or as its freshly-produced replacement.
+ */
+export function shouldRevokeProcessedUrl(oldUrl: string, originalUrl: string, newUrl: string): boolean {
+  if (!oldUrl.startsWith('blob:')) return false;
+  if (oldUrl === originalUrl) return false;
+  if (oldUrl === newUrl) return false;
+  return true;
+}
+
+/** Revokes a stale processed object URL if and only if it's safe to. */
+export function revokeProcessedUrl(oldUrl: string, originalUrl: string, newUrl: string) {
+  if (shouldRevokeProcessedUrl(oldUrl, originalUrl, newUrl)) URL.revokeObjectURL(oldUrl);
+}
+
+/** Frees every object URL an image holds when it leaves the queue (remove/clear). */
+export function revokeImageUrls(img: Pick<UploadedImage, 'originalUrl' | 'processedUrl' | 'cutoutUrl'>) {
+  const { originalUrl, processedUrl, cutoutUrl } = img;
+  if (processedUrl.startsWith('blob:') && processedUrl !== originalUrl && processedUrl !== cutoutUrl) {
+    URL.revokeObjectURL(processedUrl);
+  }
+  if (cutoutUrl && cutoutUrl.startsWith('blob:')) URL.revokeObjectURL(cutoutUrl);
+  if (originalUrl.startsWith('blob:')) URL.revokeObjectURL(originalUrl);
+}
+
+/**
+ * The source the resize pipeline should draw from: the transparent cutout when
+ * background removal is active for this image, otherwise the pristine original.
+ * Keeping both lets "remove background" be a non-destructive, undoable toggle.
+ */
+export function effectiveSourceUrl(img: Pick<UploadedImage, 'originalUrl' | 'cutoutUrl' | 'bgRemoved'>): string {
+  return img.bgRemoved && img.cutoutUrl ? img.cutoutUrl : img.originalUrl;
+}
+
+/**
+ * Runs client-side background removal (ISNet via ONNX, no server). Returns a blob
+ * URL for a transparent PNG. `isnet_fp16` halves the model download vs full ISNet
+ * at near-identical quality — the right trade for a browser-delivered model.
+ * The model (~40MB) is fetched once from the imgly CDN and cached by the browser.
+ *
+ * The library (ONNX runtime, ~400KB JS) is dynamically imported so it stays out
+ * of the initial bundle — users who never remove a background never download it.
+ *
+ * `onProgress` reports 0–100 and a coarse stage: 'download' while the model is
+ * being fetched (the slow first-run cost), 'process' during inference.
+ *
+ * imgly fires the raw callback once *per asset* (the model ships as several files
+ * plus the wasm runtime), each with its own current/total. Reporting those in
+ * isolation makes the percentage fill, reset to 0 for the next file, and fill
+ * again — janky and non-monotonic. So we aggregate the download phase by summing
+ * bytes across every asset seen so far and clamp it monotonic, yielding one smooth
+ * 0→100. The process phase is a single key, reported directly.
+ */
+export type BgStage = 'download' | 'process';
+
+export async function removeImageBackground(
+  srcUrl: string,
+  onProgress?: (percent: number, stage: BgStage) => void,
+): Promise<string> {
+  const { removeBackground } = await import('@imgly/background-removal');
+
+  const downloads = new Map<string, { current: number; total: number }>();
+  let lastDownloadPct = 0;
+  let lastReported = -1; // skip duplicate integer percents to cut re-renders
+
+  const report = (pct: number, stage: BgStage) => {
+    if (!onProgress) return;
+    if (pct === lastReported && stage === 'download') return;
+    lastReported = pct;
+    onProgress(pct, stage);
+  };
+
+  const blob = await removeBackground(srcUrl, {
+    model: 'isnet_fp16',
+    output: { format: 'image/png' },
+    progress: onProgress
+      ? (key, current, total) => {
+          if (key.startsWith('fetch')) {
+            downloads.set(key, { current, total });
+            let sumC = 0, sumT = 0;
+            for (const d of downloads.values()) { sumC += d.current; sumT += d.total; }
+            if (sumT > 0) {
+              // A newly-discovered asset can briefly shrink the ratio; clamp monotonic.
+              lastDownloadPct = Math.max(lastDownloadPct, Math.round((sumC / sumT) * 100));
+              report(Math.min(lastDownloadPct, 100), 'download');
+            }
+          } else if (total > 0) {
+            lastReported = -1; // entering process phase: allow the first 0% through
+            report(Math.round((current / total) * 100), 'process');
+          }
+        }
+      : undefined,
+  });
+  return URL.createObjectURL(blob);
 }
 
 /**
@@ -81,19 +242,16 @@ export async function processImageOnCanvas(
   outputWidth: number,
   outputHeight: number
 ): Promise<string> {
-  const worker = getWorker();
   const id = `job-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
   // Convert HTMLImageElement to ImageBitmap so we can pass it to the worker
   const bitmap = await createImageBitmap(img);
 
-  return new Promise((resolve, reject) => {
-    workerQueue[id] = { resolve, reject };
-    worker.postMessage(
-      { type: 'PROCESS', id, bitmap, settings, outputWidth, outputHeight } as WorkerMessage,
-      [bitmap] // Transfer the bitmap ownership to the worker for performance
-    );
-  });
+  // Transfer the bitmap ownership to the worker for performance.
+  return getPool().run(
+    { type: 'PROCESS', id, bitmap, settings, outputWidth, outputHeight },
+    [bitmap]
+  );
 }
 
 /**

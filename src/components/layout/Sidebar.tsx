@@ -48,11 +48,11 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="lg:col-span-3 bg-[#18181b] border border-white/5 rounded-xl p-4 flex flex-col shadow-lg h-[calc(100vh-100px)] sticky top-[80px]">
-      <div className="flex items-center justify-between pb-3 border-b border-white/5 mb-3">
+    <aside className="lg:col-span-3 bg-surface border border-line rounded-xl p-4 flex flex-col shadow-lg h-[calc(100vh-100px)] sticky top-[80px]">
+      <div className="flex items-center justify-between pb-3 border-b border-line mb-3">
         <div className="flex items-center gap-2">
-          <ImageIcon className="w-4 h-4 text-zinc-400" />
-          <h2 className="font-semibold text-sm text-zinc-100">Queue ({images.length})</h2>
+          <ImageIcon className="w-4 h-4 text-muted" />
+          <h2 className="font-semibold text-sm text-content">Queue ({images.length})</h2>
         </div>
         {images.length > 0 && (
           <button 
@@ -73,15 +73,15 @@ export const Sidebar: React.FC = () => {
           scale: dragActive ? 1.01 : 1,
         }}
         transition={{ duration: 0.2 }}
-        className="border border-dashed rounded-xl p-4 text-center cursor-pointer mb-4 shrink-0 hover:border-white/20 hover:bg-[#27272a]/50"
+        className="border border-dashed rounded-xl p-4 text-center cursor-pointer mb-4 shrink-0 hover:border-line-strong hover:bg-elevated/50"
       >
         <input 
           type="file" ref={fileInputRef}
           onChange={(e) => e.target.files && handleFiles(e.target.files)}
           multiple accept="image/*" className="hidden" 
         />
-        <Upload className="w-5 h-5 text-zinc-400 mx-auto mb-2" />
-        <p className="text-xs font-medium text-zinc-300">Upload Images</p>
+        <Upload className="w-5 h-5 text-muted mx-auto mb-2" />
+        <p className="text-xs font-medium text-muted">Upload Images</p>
       </motion.div>
 
       <AnimatePresence mode="popLayout">
@@ -94,19 +94,19 @@ export const Sidebar: React.FC = () => {
             transition={{ duration: 0.25 }}
             className="mb-4 flex gap-2 shrink-0 overflow-hidden"
           >
-            <div className="flex-1 bg-[#27272a]/50 px-3 py-2 rounded-lg border border-white/5 flex items-center justify-between">
-              <span className="text-xs text-zinc-400">Total</span>
+            <div className="flex-1 bg-elevated/50 px-3 py-2 rounded-lg border border-line flex items-center justify-between">
+              <span className="text-xs text-muted">Total</span>
               <motion.span
                 key={stats.total}
                 initial={{ scale: 1.2, opacity: 0.5 }}
                 animate={{ scale: 1, opacity: 1 }}
-                className="text-sm font-semibold text-zinc-100"
+                className="text-sm font-semibold text-content"
               >
                 {stats.total}
               </motion.span>
             </div>
-            <div className="flex-1 bg-[#27272a]/50 px-3 py-2 rounded-lg border border-white/5 flex items-center justify-between">
-              <span className="text-xs text-zinc-400">Done</span>
+            <div className="flex-1 bg-elevated/50 px-3 py-2 rounded-lg border border-line flex items-center justify-between">
+              <span className="text-xs text-muted">Done</span>
               <motion.span
                 key={stats.totalDone}
                 initial={{ scale: 1.2, opacity: 0.5 }}
@@ -134,12 +134,12 @@ export const Sidebar: React.FC = () => {
             transition={{ duration: 0.3 }}
             className="flex flex-col items-center justify-center py-10 text-center h-full"
           >
-            <p className="text-xs text-zinc-500 mt-2 max-w-[200px] leading-relaxed">
+            <p className="text-xs text-faint mt-2 max-w-[200px] leading-relaxed">
               Upload your product images to get started.
             </p>
             <button 
               onClick={loadSamples}
-              className="mt-4 px-4 py-2 bg-[#27272a] hover:bg-[#3f3f46] text-zinc-100 font-medium text-xs rounded-md transition-colors duration-200"
+              className="mt-4 px-4 py-2 bg-elevated hover:bg-hover text-content font-medium text-xs rounded-md transition-colors duration-200"
             >
               Load Samples
             </button>
@@ -170,17 +170,17 @@ export const Sidebar: React.FC = () => {
                   className={`group relative p-2 rounded-lg border cursor-pointer flex items-center justify-between ${
                     isSelected 
                       ? 'bg-blue-500/10 border-blue-500/30' 
-                      : 'border-white/5 bg-[#27272a]/30 hover:bg-[#27272a]/80'
+                      : 'border-line bg-elevated/30 hover:bg-elevated/80'
                   }`}
                 >
                   <div className="flex items-center gap-2 overflow-hidden pointer-events-none">
-                    <GripVertical className="w-3 h-3 text-zinc-600 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
-                    <div className="w-10 h-10 rounded bg-[#18181b] flex-shrink-0 relative overflow-hidden flex items-center justify-center border border-white/5">
+                    <GripVertical className="w-3 h-3 text-faint shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
+                    <div className="w-10 h-10 rounded bg-surface flex-shrink-0 relative overflow-hidden flex items-center justify-center border border-line">
                       <img src={img.originalUrl} alt="" className="max-w-full max-h-full object-contain" />
                     </div>
                     <div className="overflow-hidden">
-                      <p className="text-xs font-medium text-zinc-200 truncate pr-4">{img.name}</p>
-                      <span className="text-[10px] text-zinc-500 block mt-0.5 whitespace-nowrap">
+                      <p className="text-xs font-medium text-content truncate pr-4">{img.name}</p>
+                      <span className="text-[10px] text-faint block mt-0.5 whitespace-nowrap">
                         {img.width} × {img.height}
                       </span>
                     </div>
@@ -188,7 +188,9 @@ export const Sidebar: React.FC = () => {
 
                   <button
                     onClick={(e) => handleRemoveImage(img.id, e)}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 rounded-md text-zinc-500 hover:text-red-400 hover:bg-[#3f3f46] transition-all duration-200 cursor-pointer"
+                    title="Delete image"
+                    aria-label={`Delete ${img.name}`}
+                    className="opacity-60 group-hover:opacity-100 p-1.5 rounded-md text-muted hover:text-red-400 hover:bg-red-500/10 transition-all duration-200 cursor-pointer shrink-0"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -207,10 +209,10 @@ export const Sidebar: React.FC = () => {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 12 }}
             transition={{ duration: 0.25 }}
-            className="mt-4 pt-4 border-t border-white/5 shrink-0 flex flex-col gap-3"
+            className="mt-4 pt-4 border-t border-line shrink-0 flex flex-col gap-3"
           >
             <div className="flex flex-col gap-2">
-              <span className="text-xs text-zinc-400 font-medium block">Batch Export Dimension:</span>
+              <span className="text-xs text-muted font-medium block">Batch Export Dimension:</span>
               <div className="grid grid-cols-4 gap-1">
                 {['300', '600', '855', '1000', '1200', 'preview', 'custom'].map((sz) => {
                   const active = exportSizeSelection === sz;
@@ -221,7 +223,7 @@ export const Sidebar: React.FC = () => {
                       className={`py-1 rounded text-xs font-medium border cursor-pointer transition-all duration-200 ${
                         active 
                           ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' 
-                          : 'bg-[#27272a] border-white/5 text-zinc-400 hover:text-zinc-200'
+                          : 'bg-elevated border-line text-muted hover:text-content'
                       } ${sz === 'custom' || sz === 'preview' ? 'col-span-2' : 'col-span-1'}`}
                     >
                       {sz === 'preview' ? 'Canvas' : sz === 'custom' ? 'Custom' : `${sz}px`}
@@ -242,7 +244,7 @@ export const Sidebar: React.FC = () => {
                     <input 
                       type="number" value={customExportSizeInput}
                       onChange={(e) => setCustomExportSizeInput(Number(e.target.value))}
-                      className="w-full bg-[#18181b] border border-white/10 rounded px-2 py-1 text-xs text-zinc-200 outline-none focus:border-blue-500 transition-colors duration-200"
+                      className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-xs text-content outline-none focus:border-blue-500 transition-colors duration-200"
                     />
                   </motion.div>
                 )}

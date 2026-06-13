@@ -7,9 +7,55 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
+/* Semantic color tokens. `inline` makes the utilities resolve to the runtime
+   CSS vars below, so toggling the `.light` / `.dark` class on <html> reskins
+   the whole app. Opacity modifiers (e.g. bg-surface/50) work via color-mix. */
+@theme inline {
+  --color-base: var(--c-base);             /* app background */
+  --color-surface: var(--c-surface);       /* panels / cards */
+  --color-elevated: var(--c-elevated);     /* raised fills, thumbnails */
+  --color-hover: var(--c-hover);           /* hover fills */
+  --color-track: var(--c-track);           /* slider/input tracks */
+  --color-content: var(--c-content);       /* primary text */
+  --color-muted: var(--c-muted);           /* secondary text */
+  --color-faint: var(--c-faint);           /* tertiary text */
+  --color-line: var(--c-line);             /* hairline borders */
+  --color-line-strong: var(--c-line-strong);
+}
+
+/* Dark is the default (also applied when no class is present). */
+:root,
+.dark {
+  --c-base: #09090b;
+  --c-surface: #18181b;
+  --c-elevated: #27272a;
+  --c-hover: #3f3f46;
+  --c-track: #27272a;
+  --c-content: #fafafa;
+  --c-muted: #a1a1aa;
+  --c-faint: #71717a;
+  --c-line: rgba(255, 255, 255, 0.06);
+  --c-line-strong: rgba(255, 255, 255, 0.12);
+  --c-checker: #27272a; /* transparency-preview tile, dark */
+}
+
+.light {
+  --c-base: #fafafa;
+  --c-surface: #ffffff;
+  --c-elevated: #f1f1f3;
+  --c-hover: #e4e4e7;
+  --c-track: #e4e4e7;
+  --c-content: #18181b;
+  --c-muted: #52525b;
+  --c-faint: #71717a;
+  --c-line: rgba(0, 0, 0, 0.08);
+  --c-line-strong: rgba(0, 0, 0, 0.14);
+  --c-checker: #dcdce0; /* transparency-preview tile, light */
+}
+
 body {
-  background-color: #09090b;
-  color: #f4f4f5;
+  background-color: var(--c-base);
+  color: var(--c-content);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -26,21 +72,13 @@ body {
   }
 }
 
-/* Custom styles for e-commerce preview grids and interactive checks */
-.checkerboard-bg {
-  background-image: linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
-                    linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
-                    linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
-                    linear-gradient(-45deg, transparent 75%, #f3f4f6 75%);
-  background-size: 16px 16px;
-  background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-}
-
-.checkerboard-bg-dark {
-  background-image: linear-gradient(45deg, #27272a 25%, transparent 25%),
-                    linear-gradient(-45deg, #27272a 25%, transparent 25%),
-                    linear-gradient(45deg, transparent 75%, #27272a 75%),
-                    linear-gradient(-45deg, transparent 75%, #27272a 75%);
+/* Transparency-preview tiles. Tile color is theme-driven (--c-checker), so the
+   backdrop follows light/dark instead of being pinned to a dark fill. */
+.checkerboard {
+  background-image: linear-gradient(45deg, var(--c-checker) 25%, transparent 25%),
+                    linear-gradient(-45deg, var(--c-checker) 25%, transparent 25%),
+                    linear-gradient(45deg, transparent 75%, var(--c-checker) 75%),
+                    linear-gradient(-45deg, transparent 75%, var(--c-checker) 75%);
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
 }
@@ -54,9 +92,9 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: var(--c-hover);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: var(--c-faint);
 }
