@@ -24,6 +24,23 @@
         }
       })();
     </script>
+    <script>
+      // Theme FOUC guard: commit the light/dark class before first paint so the
+      // app never flashes the wrong theme. Mirrors src/hooks/useTheme.ts.
+      (function () {
+        try {
+          var stored = localStorage.getItem('theme');
+          var prefersLight =
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: light)').matches;
+          var theme = stored || (prefersLight ? 'light' : 'dark');
+          document.documentElement.classList.add(theme);
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
+    <link rel="icon" type="image/png" href="/favicon-48.png" />
     <title>Smart Image Resizer</title>
   </head>
   <body>

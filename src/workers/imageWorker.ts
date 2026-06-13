@@ -150,6 +150,73 @@ function getTrimmedCanvas(bitmap: ImageBitmap): OffscreenCanvas | null {
   return croppedCanvas;
 }
 
+function hasEnhancement(s: ResizeSettings): boolean {
+  return s.brightness !== 100 || s.contrast !== 100 || s.saturation !== 100 || s.sharpen > 0;
+}
+
+/**
+ * Unsharp mask via a 3×3 sharpen convolution. Run on the draw-sized product
+ * canvas (≤ output size), so cost stays bounded even on a 4000px source.
+ * Alpha is preserved untouched so cutouts keep clean edges.
+ */
+function applyUnsharpMask(ctx: OffscreenCanvasRenderingContext2D, w: number, h: number, amount: number) {
+  if (amount <= 0 || w < 3 || h < 3) return;
+  const src = ctx.getImageData(0, 0, w, h);
+  const out = ctx.createImageData(w, h);
+  const s = src.data, d = out.data;
+  const center = 1 + 4 * amount;
+  const side = -amount;
+  const stride = w * 4;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        const idx = i + c;
+        const left = x > 0 ? s[idx - 4] : s[idx];
+        const right = x < w - 1 ? s[idx + 4] : s[idx];
+        const up = y > 0 ? s[idx - stride] : s[idx];
+        const down = y < h - 1 ? s[idx + stride] : s[idx];
+        const v = s[idx] * center + (left + right + up + down) * side;
+        d[idx] = v < 0 ? 0 : v > 255 ? 255 : v;
+      }
+      d[i + 3] = s[i + 3]; // keep original alpha
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+}
+
+/**
+ * Renders the product into a draw-sized canvas with quality enhancement applied:
+ * brightness/contrast/saturation via the native (GPU) canvas filter, then a
+ * sharpen pass. Only the product is enhanced — never the background or shadow.
+ */
+function renderEnhancedProduct(
+  source: ImageBitmap | OffscreenCanvas,
+  w: number,
+  h: number,
+  settings: ResizeSettings,
+): OffscreenCanvas {
+  const cw = Math.max(1, Math.round(w));
+  const ch = Math.max(1, Math.round(h));
+  const canvas = new OffscreenCanvas(cw, ch);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D;
+
+  const filters: string[] = [];
+  if (settings.brightness !== 100) filters.push(`brightness(${settings.brightness}%)`);
+  if (settings.contrast !== 100) filters.push(`contrast(${settings.contrast}%)`);
+  if (settings.saturation !== 100) filters.push(`saturate(${settings.saturation}%)`);
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  if (filters.length > 0 && 'filter' in ctx) ctx.filter = filters.join(' ');
+  ctx.drawImage(source, 0, 0, cw, ch);
+  ctx.filter = 'none';
+
+  applyUnsharpMask(ctx, cw, ch, settings.sharpen / 100);
+  return canvas;
+}
+
 self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   const msg = e.data;
   
@@ -320,7 +387,12 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
         }
       }
 
-      ctx.drawImage(sourceElement, drawX, drawY, drawW, drawH);
+      if (hasEnhancement(settings)) {
+        const enhanced = renderEnhancedProduct(sourceElement, drawW, drawH, settings);
+        ctx.drawImage(enhanced, drawX, drawY);
+      } else {
+        ctx.drawImage(sourceElement, drawX, drawY, drawW, drawH);
+      }
       ctx.restore();
 
       // Convert to blob

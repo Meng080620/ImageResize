@@ -8,11 +8,13 @@ export interface UploadedImage {
   name: string;
   type: string;
   size: number;
-  originalUrl: string; // Object URL for original image
+  originalUrl: string; // Object URL for original image (pristine upload — never mutated)
   processedUrl: string; // Object URL for processed preview
   width: number;
   height: number;
   aspectRatio: number;
+  cutoutUrl?: string; // Transparent-background version (blob URL), computed on demand
+  bgRemoved?: boolean; // When true, the resize pipeline reads from cutoutUrl instead of originalUrl
 }
 
 export type AspectRatioType = '1:1' | '4:3' | '3:4' | '16:9' | 'custom';
@@ -34,6 +36,11 @@ export interface ResizeSettings {
   exportQuality: number; // 0.1 to 1.0 (for jpeg/webp)
   upscaleSmallImages: boolean; // Scale small images up to fill full box
   trimProductMargins: boolean; // Auto trim white/transparent margins from input product image
+  // Quality enhancement (applied to the product only, at draw size):
+  brightness: number; // percent, 100 = unchanged
+  contrast: number;   // percent, 100 = unchanged
+  saturation: number; // percent, 100 = unchanged
+  sharpen: number;    // 0–100 unsharp-mask amount, 0 = off
   autoCenter: boolean; // Auto-detect center of mass and align it
   shadowType: 'none' | 'soft' | 'medium' | 'hard' | 'glow' | 'custom';
   shadowPlacement: 'outset' | 'inset';

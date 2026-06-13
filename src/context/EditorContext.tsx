@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, ReactNode, useCallback } from 'react';
 import JSZip from 'jszip';
 import { UploadedImage, ResizeSettings, ASPECT_RATIOS } from '../types';
-import { processImageOnCanvas, loadImage, computeTargetDims, downloadDataUrl } from '../utils/imageProcessor';
+import { processImageOnCanvas, loadImage, computeTargetDims, downloadDataUrl, removeImageBackground, effectiveSourceUrl } from '../utils/imageProcessor';
 import { getSampleProducts } from '../utils/sampleImages';
 import { useImageQueue } from '../hooks/useImageQueue';
 import { useImageProcessor } from '../hooks/useImageProcessor';
@@ -19,6 +19,10 @@ const DEFAULT_SETTINGS: ResizeSettings = {
   exportQuality: 0.90,
   upscaleSmallImages: true,
   trimProductMargins: true,
+  brightness: 100,
+  contrast: 100,
+  saturation: 100,
+  sharpen: 0,
   autoCenter: false,
   shadowType: 'none',
   shadowPlacement: 'outset',
@@ -77,6 +81,12 @@ interface EditorContextType {
   handleNextImage: () => void;
   handlePrevImage: () => void;
   handleResetSettings: () => void;
+  handleRemoveBackground: (id: string) => void;
+  handleRemoveBackgroundAll: () => void;
+  isBgProcessing: (id: string) => boolean;
+  bgProgress: number | null;        // 0–100 for the active removal, null when idle
+  bgStage: 'download' | 'process' | null;
+  bgBatch: { done: number; total: number } | null; // set while a batch removal runs
   handleDownloadSingle: () => void;
   handleDownloadZipWithSize: (targetSize: number | 'preview') => void;
   onDrag: (e: React.DragEvent) => void;
@@ -121,6 +131,85 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const handleResetSettings = () => setSettings(DEFAULT_SETTINGS);
 
+  // Background removal runs client-side and is expensive, so it's an explicit,
+  // non-destructive toggle: compute the transparent cutout once, then flip
+  // `bgRemoved` on/off without recomputing. The original is never discarded.
+  const [bgProcessingIds, setBgProcessingIds] = useState<Set<string>>(new Set());
+  const [bgProgress, setBgProgress] = useState<number | null>(null);
+  const [bgStage, setBgStage] = useState<'download' | 'process' | null>(null);
+  const [bgBatch, setBgBatch] = useState<{ done: number; total: number } | null>(null);
+  const isBgProcessing = useCallback((id: string) => bgProcessingIds.has(id), [bgProcessingIds]);
+
+  // Compute the cutout for one image, reporting progress. Throws on failure so
+  // callers (single vs batch) decide how to surface it.
+  const computeCutout = useCallback(async (id: string, srcUrl: string) => {
+    setBgProcessingIds(prev => new Set(prev).add(id));
+    setBgProgress(0);
+    try {
+      const cutoutUrl = await removeImageBackground(srcUrl, (pct, stage) => {
+        setBgProgress(pct);
+        setBgStage(stage);
+      });
+      setImages(prev => prev.map(img => img.id === id ? { ...img, cutoutUrl, bgRemoved: true } : img));
+    } finally {
+      setBgProcessingIds(prev => { const next = new Set(prev); next.delete(id); return next; });
+      setBgProgress(null);
+      setBgStage(null);
+    }
+  }, [setImages]);
+
+  const handleRemoveBackground = useCallback(async (id: string) => {
+    const target = images.find(img => img.id === id);
+    if (!target || bgProcessingIds.has(id)) return;
+
+    // Already have a cutout — just toggle which source the pipeline reads. No recompute.
+    if (target.cutoutUrl) {
+      setImages(prev => prev.map(img => img.id === id ? { ...img, bgRemoved: !img.bgRemoved } : img));
+      showToast(target.bgRemoved ? 'Background restored.' : 'Background removed.', target.bgRemoved ? 'info' : 'success');
+      return;
+    }
+
+    showToast('Removing background — first run downloads the model (~40MB)…', 'info');
+    try {
+      await computeCutout(id, target.originalUrl);
+      showToast('Background removed.', 'success');
+    } catch (e) {
+      showToast('Background removal failed.', 'error');
+    }
+  }, [images, bgProcessingIds, setImages, showToast, computeCutout]);
+
+  // Batch: remove background for every image. The ~24MB model downloads once,
+  // then images are processed sequentially (parallel inference would thrash
+  // memory and the single ONNX session). Images that already have a cutout are
+  // just re-enabled. One failure is skipped so the rest still complete.
+  const handleRemoveBackgroundAll = useCallback(async () => {
+    if (bgBatch || bgProcessingIds.size > 0) return;
+
+    // Re-enable any cutouts we already have, up front.
+    setImages(prev => prev.map(img => img.cutoutUrl ? { ...img, bgRemoved: true } : img));
+
+    const pending = images.filter(img => !img.cutoutUrl);
+    if (pending.length === 0) {
+      showToast('All backgrounds already removed.', 'info');
+      return;
+    }
+
+    setBgBatch({ done: 0, total: pending.length });
+    showToast(`Removing backgrounds for ${pending.length} image(s)…`, 'info');
+    let failed = 0;
+    for (const img of pending) {
+      try {
+        await computeCutout(img.id, img.originalUrl);
+      } catch (e) {
+        failed++;
+      } finally {
+        setBgBatch(prev => prev ? { ...prev, done: prev.done + 1 } : prev);
+      }
+    }
+    setBgBatch(null);
+    showToast(failed > 0 ? `Done — ${failed} failed.` : 'Removed backgrounds for all images.', failed > 0 ? 'error' : 'success');
+  }, [images, bgBatch, bgProcessingIds, setImages, showToast, computeCutout]);
+
   const activeExportSize = useMemo(() => {
     if (exportSizeSelection === 'preview') return 'preview';
     if (exportSizeSelection === 'custom') return customExportSizeInput;
@@ -133,7 +222,7 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const format = settings.exportFormat;
     const saveName = `${selectedImage.name.substring(0, selectedImage.name.lastIndexOf('.')) || selectedImage.name}.${format}`;
     try {
-      const imgElem = await loadImage(selectedImage.originalUrl);
+      const imgElem = await loadImage(effectiveSourceUrl(selectedImage));
       const { width, height } = computeTargetDims(settings, activeExportSize);
       const url = await processImageOnCanvas(imgElem, settings, width, height);
       downloadDataUrl(url, saveName);
@@ -149,7 +238,7 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const zip = new JSZip();
     try {
       for (const item of images) {
-        const imgElem = await loadImage(item.originalUrl);
+        const imgElem = await loadImage(effectiveSourceUrl(item));
         const { width, height } = computeTargetDims(settings, targetSize);
         const processedUrl = await processImageOnCanvas(imgElem, settings, width, height);
         const blob = await (await fetch(processedUrl)).blob();
@@ -199,6 +288,8 @@ export const EditorProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       exportSizeSelection, setExportSizeSelection, customExportSizeInput, setCustomExportSizeInput,
       selectedImage, activeExportSize, imagesAnalysis, stats, selectedImageAnalysis,
       handleOpenBigPreviewHero, handleResetSettings,
+      handleRemoveBackground, handleRemoveBackgroundAll, isBgProcessing,
+      bgProgress, bgStage, bgBatch,
       handleDownloadSingle, handleDownloadZipWithSize
     }}>
       {children}
