@@ -9,6 +9,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useAuth } from '../../context/AuthContext';
 import { startCheckout } from '../../lib/stripe';
 import { BeforeAfterSlider } from './BeforeAfterSlider';
+import { FeatureShowcase } from './FeatureShowcase';
 import { getDemoSliderPair } from '../../utils/sampleImages';
 
 interface Props { onLaunchApp: () => void; }
@@ -43,57 +44,6 @@ const MARKETPLACES = [
   { name: 'WooCommerce', color: '#7f54b3' },
   { name: 'Lazada',      color: '#0f146d' },
   { name: 'Shopee',      color: '#ee4d2d' },
-];
-
-const FEATURES = [
-  {
-    icon: Wand2, color: 'text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/20',
-    title: 'AI Background Removal',
-    desc: 'ISNet ONNX model. Three quality modes. Runs fully in your browser — nothing uploaded.',
-    badge: 'Premium', badgeColor: 'bg-purple-500/15 text-purple-400 border-purple-500/20',
-    demo: { label: 'Before → transparent', accent: 'from-purple-500/20 to-transparent' },
-    glowHex: '#a855f7',
-  },
-  {
-    icon: ZoomIn, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20',
-    title: 'AI Upscale 2× / 4×',
-    desc: 'ESRGAN super-resolution. Sharpens low-res shots before export. No blur, real detail.',
-    badge: 'Premium', badgeColor: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
-    demo: { label: '300px → 1200px', accent: 'from-blue-500/20 to-transparent' },
-    glowHex: '#3b82f6',
-  },
-  {
-    icon: Crop, color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/20',
-    title: 'Smart Resize & Crop',
-    desc: 'Auto-center, trim margins, contain or cover. Any aspect ratio, any marketplace.',
-    badge: 'Free', badgeColor: 'bg-green-500/15 text-green-400 border-green-500/20',
-    demo: { label: '1:1 · 4:3 · 16:9', accent: 'from-green-500/20 to-transparent' },
-    glowHex: '#22c55e',
-  },
-  {
-    icon: FileArchive, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20',
-    title: 'Batch ZIP Export',
-    desc: 'Process your full catalog, download one ZIP at your chosen pixel size.',
-    badge: 'Premium', badgeColor: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
-    demo: { label: '50 images in ~2 min', accent: 'from-amber-500/20 to-transparent' },
-    glowHex: '#f59e0b',
-  },
-  {
-    icon: ShieldCheck, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20',
-    title: 'Quality Inspector',
-    desc: 'Auto-detects low-res, wrong ratio, missing BG removal — before they hurt conversions.',
-    badge: 'Free', badgeColor: 'bg-green-500/15 text-green-400 border-green-500/20',
-    demo: { label: 'Issue detection', accent: 'from-cyan-500/20 to-transparent' },
-    glowHex: '#06b6d4',
-  },
-  {
-    icon: Lock, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20',
-    title: '100% Private',
-    desc: 'All AI runs locally via WebGPU / WASM. Zero server uploads. Your images stay yours.',
-    badge: 'Always', badgeColor: 'bg-rose-500/15 text-rose-400 border-rose-500/20',
-    demo: { label: 'No cloud required', accent: 'from-rose-500/20 to-transparent' },
-    glowHex: '#f43f5e',
-  },
 ];
 
 const STEPS = [
@@ -417,38 +367,10 @@ export const LandingPage: React.FC<Props> = ({ onLaunchApp }) => {
             <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-content">Everything your catalog needs</h2>
             <p className="text-muted mt-3 max-w-xl mx-auto text-sm">Professional image prep without Photoshop, without a server, without a designer.</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {FEATURES.map((f, i) => (
-              <motion.div
-                key={f.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: i * 0.07 }}
-                whileHover={{
-                  y: -4,
-                  boxShadow: `0 0 32px ${f.glowHex}22`,
-                  transition: { duration: 0.2 },
-                }}
-                className="backdrop-blur-xl bg-white/[0.03] border border-white/[0.07] rounded-2xl p-5 flex flex-col gap-3 cursor-default relative overflow-hidden group transition-colors hover:border-white/[0.14] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
-              >
-                {/* Gradient accent top */}
-                <div className={`absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r ${f.demo.accent}`} />
-
-                <div className="flex items-start justify-between">
-                  <div className={`w-9 h-9 rounded-xl ${f.bg} border ${f.border} flex items-center justify-center`}>
-                    <f.icon className={`w-[18px] h-[18px] ${f.color}`} />
-                  </div>
-                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${f.badgeColor} uppercase tracking-wide`}>{f.badge}</span>
-                </div>
-                <h3 className="font-semibold text-sm text-content">{f.title}</h3>
-                <p className="text-xs text-muted leading-relaxed flex-1">{f.desc}</p>
-                <div className={`text-[10px] font-semibold ${f.color} flex items-center gap-1`}>
-                  <Zap className="w-3 h-3" /> {f.demo.label}
-                </div>
-              </motion.div>
-            ))}
-          </div>
+          <FeatureShowcase />
+          <p className="text-center text-[11px] text-faint mt-5">
+            ← Pick a feature to see it in action · auto-plays while you browse
+          </p>
         </div>
       </section>
 
