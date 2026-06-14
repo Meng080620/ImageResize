@@ -1,13 +1,29 @@
 /// <reference lib="webworker" />
 import { ResizeSettings } from '../types';
 
-export type WorkerMessage = 
-  | { type: 'PROCESS'; id: string; bitmap: ImageBitmap; settings: ResizeSettings; outputWidth: number; outputHeight: number; }
+export type WorkerMessage =
+  | { type: 'PROCESS'; id: string; cacheKey: string; isPreview: boolean; bitmap: ImageBitmap; settings: ResizeSettings; outputWidth: number; outputHeight: number; }
   | { type: 'CLEANUP' };
 
-export type WorkerResponse = 
-  | { type: 'DONE'; id: string; blob: Blob }
-  | { type: 'ERROR'; id: string; error: string };
+export type WorkerResponse =
+  | { type: 'DONE'; id: string; blob: Blob; warnings?: string[] }
+  | { type: 'ERROR'; id: string; error: string }
+  | { type: 'WARN'; id: string; warning: string };
+
+// Per-image caches keyed by cacheKey (imageId + source URL). These avoid
+// re-running the expensive trim and center-of-mass scans on every preview
+// re-render when only shadow/color/format settings change.
+const trimCache   = new Map<string, OffscreenCanvas | null>();
+const comCache    = new Map<string, { dx: number; dy: number }>();
+const shadowCache = new Map<string, OffscreenCanvas>(); // key: cacheKey + shadow settings hash
+
+const MAX_CACHE = 30; // evict oldest when over this many entries
+function evictIfNeeded(map: Map<string, unknown>) {
+  if (map.size > MAX_CACHE) {
+    const first = map.keys().next().value;
+    if (first !== undefined) map.delete(first);
+  }
+}
 
 function getBorderAverageColor(bitmap: ImageBitmap): string {
   const size = 50;
@@ -55,9 +71,10 @@ function getCenterOfMassOffset(bitmap: ImageBitmap | OffscreenCanvas): { dx: num
   const size = 100;
   const scaleX = bitmap.width / size;
   const scaleY = bitmap.height / size;
-  
+
   const canvas = new OffscreenCanvas(size, size);
-  const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('getCenterOfMassOffset: getContext returned null (OOM?)');
   ctx.drawImage(bitmap, 0, 0, size, size);
   const data = ctx.getImageData(0, 0, size, size).data;
 
@@ -103,9 +120,10 @@ function getTrimmedCanvas(bitmap: ImageBitmap): OffscreenCanvas | null {
   const h = Math.round(bitmap.height * scale);
 
   const canvas = new OffscreenCanvas(w, h);
-  const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('getTrimmedCanvas: getContext returned null (OOM?)');
   ctx.drawImage(bitmap, 0, 0, w, h);
-  
+
   const imgData = ctx.getImageData(0, 0, w, h);
   const { data } = imgData;
   
@@ -139,8 +157,9 @@ function getTrimmedCanvas(bitmap: ImageBitmap): OffscreenCanvas | null {
   if (origWidth <= 2 || origHeight <= 2) return null;
 
   const croppedCanvas = new OffscreenCanvas(origWidth, origHeight);
-  const croppedCtx = croppedCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
-  
+  const croppedCtx = croppedCanvas.getContext('2d');
+  if (!croppedCtx) throw new Error('getTrimmedCanvas: getContext (crop) returned null (OOM?)');
+
   croppedCtx.drawImage(
     bitmap, 
     origX, origY, origWidth, origHeight,
@@ -196,11 +215,13 @@ function renderEnhancedProduct(
   w: number,
   h: number,
   settings: ResizeSettings,
+  quality: ImageSmoothingQuality = 'high',
 ): OffscreenCanvas {
   const cw = Math.max(1, Math.round(w));
   const ch = Math.max(1, Math.round(h));
   const canvas = new OffscreenCanvas(cw, ch);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true }) as OffscreenCanvasRenderingContext2D;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('renderEnhancedProduct: getContext returned null (OOM?)');
 
   const filters: string[] = [];
   if (settings.brightness !== 100) filters.push(`brightness(${settings.brightness}%)`);
@@ -208,7 +229,7 @@ function renderEnhancedProduct(
   if (settings.saturation !== 100) filters.push(`saturate(${settings.saturation}%)`);
 
   ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
+  ctx.imageSmoothingQuality = quality;
   if (filters.length > 0 && 'filter' in ctx) ctx.filter = filters.join(' ');
   ctx.drawImage(source, 0, 0, cw, ch);
   ctx.filter = 'none';
@@ -222,11 +243,13 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
   
   if (msg.type === 'PROCESS') {
     try {
-      const { bitmap, settings, outputWidth, outputHeight } = msg;
-      
+      const { cacheKey, isPreview, bitmap, settings, outputWidth, outputHeight } = msg;
+      const smoothingQuality: ImageSmoothingQuality = isPreview ? 'medium' : 'high';
+
       const canvas = new OffscreenCanvas(outputWidth, outputHeight);
-      const ctx = canvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
-      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('PROCESS: getContext returned null — out of GPU/canvas memory');
+
       // 1. Background
       if (settings.bgStyle === 'transparent') {
         ctx.clearRect(0, 0, outputWidth, outputHeight);
@@ -243,11 +266,11 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
         const bgH = bitmap.height * bgScale * 1.2;
         const bgX = (outputWidth - bgW) / 2;
         const bgY = (outputHeight - bgH) / 2;
-        
+
         ctx.drawImage(bitmap, bgX, bgY, bgW, bgH);
         ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
         ctx.fillRect(0, 0, outputWidth, outputHeight);
-        
+
         if ('filter' in ctx) {
           ctx.filter = 'blur(15px)';
           ctx.drawImage(bitmap, bgX, bgY, bgW, bgH);
@@ -258,20 +281,36 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
         ctx.restore();
       }
 
-      // 2. Trim
+      // 2. Trim — cached: result depends only on the source bitmap pixels, not on
+      //    color/shadow/format settings, so we skip the pixel scan on repeat renders.
       let sourceElement: ImageBitmap | OffscreenCanvas = bitmap;
+      const warnings: string[] = [];
       if (settings.trimProductMargins) {
-        const trimmed = getTrimmedCanvas(bitmap);
-        if (trimmed) sourceElement = trimmed;
+        if (!trimCache.has(cacheKey)) {
+          const trimmed = getTrimmedCanvas(bitmap);
+          trimCache.set(cacheKey, trimmed);
+          evictIfNeeded(trimCache);
+        }
+        const cached = trimCache.get(cacheKey);
+        if (cached) {
+          sourceElement = cached;
+        } else {
+          warnings.push('Trim margins found no product content — using the full image.');
+        }
       }
 
-      // 3. Center of mass (Auto-Center)
+      // 3. Center of mass (Auto-Center) — cached for the same reason as trim.
       let centerDx = 0;
       let centerDy = 0;
       if (settings.autoCenter) {
-        const offset = getCenterOfMassOffset(sourceElement);
-        centerDx = offset.dx;
-        centerDy = offset.dy;
+        if (!comCache.has(cacheKey)) {
+          const offset = getCenterOfMassOffset(sourceElement);
+          comCache.set(cacheKey, offset);
+          evictIfNeeded(comCache);
+        }
+        const cached = comCache.get(cacheKey)!;
+        centerDx = cached.dx;
+        centerDy = cached.dy;
       }
 
       // 4. Coordinates
@@ -336,7 +375,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       }
 
       ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
+      ctx.imageSmoothingQuality = smoothingQuality;
 
       // 5. Shadows
       if (settings.shadowType && settings.shadowType !== 'none') {
@@ -355,8 +394,19 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
         let r = 0, g = 0, b = 0;
         const cleanHex = color.replace('#', '');
-        if (cleanHex.length === 3) { r = parseInt(cleanHex[0]+cleanHex[0], 16); g = parseInt(cleanHex[1]+cleanHex[1], 16); b = parseInt(cleanHex[2]+cleanHex[2], 16); }
-        else if (cleanHex.length === 6) { r = parseInt(cleanHex.substring(0, 2), 16); g = parseInt(cleanHex.substring(2, 4), 16); b = parseInt(cleanHex.substring(4, 6), 16); }
+        if (cleanHex.length === 3) {
+          r = parseInt(cleanHex[0]+cleanHex[0], 16);
+          g = parseInt(cleanHex[1]+cleanHex[1], 16);
+          b = parseInt(cleanHex[2]+cleanHex[2], 16);
+        } else if (cleanHex.length === 6) {
+          r = parseInt(cleanHex.substring(0, 2), 16);
+          g = parseInt(cleanHex.substring(2, 4), 16);
+          b = parseInt(cleanHex.substring(4, 6), 16);
+        }
+        if (isNaN(r) || isNaN(g) || isNaN(b)) {
+          warnings.push(`Invalid shadow color "${color}" — falling back to black.`);
+          r = 0; g = 0; b = 0;
+        }
 
         if (placement === 'inset') {
           ctx.save();
@@ -375,12 +425,24 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
           ctx.globalAlpha = opacity;
           if ('filter' in ctx) ctx.filter = `blur(${blur}px)`;
 
-          const silhouetteCanvas = new OffscreenCanvas(sourceElement.width, sourceElement.height);
-          const sCtx = silhouetteCanvas.getContext('2d') as OffscreenCanvasRenderingContext2D;
-          sCtx.drawImage(sourceElement, 0, 0);
-          sCtx.globalCompositeOperation = 'source-in';
-          sCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-          sCtx.fillRect(0, 0, sourceElement.width, sourceElement.height);
+          // Allocate at draw size, not source size — avoids OOM on large/upscaled images.
+          // Cache the silhouette keyed by source + shadow color so changing only blur/offset
+          // (which are applied via canvas state, not by re-drawing) reuses the cached canvas.
+          const silW = Math.max(1, Math.ceil(drawW));
+          const silH = Math.max(1, Math.ceil(drawH));
+          const silKey = `${cacheKey}_sil_${r}_${g}_${b}_${silW}_${silH}`;
+          let silhouetteCanvas = shadowCache.get(silKey);
+          if (!silhouetteCanvas) {
+            silhouetteCanvas = new OffscreenCanvas(silW, silH);
+            const sCtx = silhouetteCanvas.getContext('2d');
+            if (!sCtx) throw new Error('shadow silhouette: getContext returned null (OOM?)');
+            sCtx.drawImage(sourceElement, 0, 0, silW, silH);
+            sCtx.globalCompositeOperation = 'source-in';
+            sCtx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            sCtx.fillRect(0, 0, silW, silH);
+            shadowCache.set(silKey, silhouetteCanvas);
+            evictIfNeeded(shadowCache);
+          }
 
           ctx.drawImage(silhouetteCanvas, drawX + offsetX - spread, drawY + offsetY - spread, drawW + spread * 2, drawH + spread * 2);
           ctx.restore();
@@ -388,7 +450,7 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
       }
 
       if (hasEnhancement(settings)) {
-        const enhanced = renderEnhancedProduct(sourceElement, drawW, drawH, settings);
+        const enhanced = renderEnhancedProduct(sourceElement, drawW, drawH, settings, smoothingQuality);
         ctx.drawImage(enhanced, drawX, drawY);
       } else {
         ctx.drawImage(sourceElement, drawX, drawY, drawW, drawH);
@@ -402,10 +464,15 @@ self.onmessage = async (e: MessageEvent<WorkerMessage>) => {
 
       const blob = await canvas.convertToBlob({ type: mimeType, quality: settings.exportQuality });
       
-      self.postMessage({ type: 'DONE', id: msg.id, blob } as WorkerResponse);
+      self.postMessage({ type: 'DONE', id: msg.id, blob, warnings: warnings.length ? warnings : undefined } as WorkerResponse);
       
-    } catch (e: any) {
-      self.postMessage({ type: 'ERROR', id: msg.id, error: e.message } as WorkerResponse);
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e);
+      self.postMessage({ type: 'ERROR', id: msg.id, error: message } as WorkerResponse);
     }
+  } else if (msg.type === 'CLEANUP') {
+    trimCache.clear();
+    comCache.clear();
+    shadowCache.clear();
   }
 };

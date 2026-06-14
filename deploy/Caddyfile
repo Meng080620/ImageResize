@@ -1,0 +1,23 @@
+# Serves the built SPA and proxies /rembg/* to the rembg container.
+# SITE_ADDRESS: set to your domain (Caddy auto-provisions HTTPS) or `:80` for IP-only.
+{$SITE_ADDRESS::80} {
+	# Background-removal API → rembg. handle_path strips the /rembg prefix so the
+	# container receives /api/remove — exactly what the app's REMBG_BASE (/rembg)
+	# + the dev Vite proxy already assume. Same-origin ⇒ no CORS, no Private-Network-Access.
+	handle_path /rembg/* {
+		reverse_proxy rembg:7000 {
+			# BiRefNet inference on a big product photo can take a while.
+			transport http {
+				response_header_timeout 120s
+			}
+		}
+	}
+
+	# The built single-page app (npm run build → dist/, mounted at /srv).
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		encode gzip
+		file_server
+	}
+}

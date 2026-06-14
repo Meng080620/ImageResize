@@ -13,8 +13,13 @@ export interface UploadedImage {
   width: number;
   height: number;
   aspectRatio: number;
-  cutoutUrl?: string; // Transparent-background version (blob URL), computed on demand
-  bgRemoved?: boolean; // When true, the resize pipeline reads from cutoutUrl instead of originalUrl
+  cutoutUrl?: string;   // Transparent-background version (blob URL), computed on demand
+  bgRemoved?: boolean;  // Active toggle: pipeline reads cutoutUrl. Independent of upscaled.
+  upscaledUrl?: string; // AI super-resolution version (blob URL), computed on demand
+  upscaled?: boolean;   // Active toggle: pipeline reads upscaledUrl (unless bgRemoved wins).
+  // State machine: bgRemoved wins over upscaled in effectiveSourceUrl. Both flags can be true
+  // simultaneously (cutout was computed from the upscaled source). Separate booleans are correct
+  // because they represent independent "is-active" toggles while the URL fields store computed results.
 }
 
 export type AspectRatioType = '1:1' | '4:3' | '3:4' | '16:9' | 'custom';
@@ -50,6 +55,12 @@ export interface ResizeSettings {
   shadowOffsetY: number; // -100 to 100
   shadowOpacity: number; // 0 to 1
   shadowColor: string; // Hex color or rgba
+}
+
+export interface ImageAnalysis extends UploadedImage {
+  issues: string[];
+  hasIssue: boolean;
+  isDone: boolean;
 }
 
 export const ASPECT_RATIOS = {
