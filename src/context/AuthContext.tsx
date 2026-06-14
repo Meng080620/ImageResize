@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
-import { supabase, supabaseSession, SUPABASE_CONFIGURED, ADMIN_EMAILS, type Plan, type Profile } from '../lib/supabase';
+import { supabase, setRemember, SUPABASE_CONFIGURED, ADMIN_EMAILS, type Plan, type Profile } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -13,7 +13,20 @@ interface AuthContextType {
   openAuthModal: () => void;
   closeAuthModal: () => void;
   signIn: (email: string, password: string, rememberMe?: boolean) => Promise<string | null>;
-  signUp: (email: string, password: string) => Promise<{ error: string | null; confirmed: boolean }>;
+  /** OTP signup step 1: email a 6-digit code, creating the user if needed. */
+  requestSignupOtp: (email: string) => Promise<string | null>;
+  /** OTP signup step 2: verify the code → signs the user in. */
+  verifyOtp: (email: string, token: string) => Promise<string | null>;
+  /** OTP signup step 3: set the password on the now-authenticated user. */
+  setPassword: (password: string) => Promise<string | null>;
+  /** Re-send the OTP code. */
+  resendOtp: (email: string) => Promise<string | null>;
+  /** Forgot-password step 1: email a recovery code. */
+  requestPasswordReset: (email: string) => Promise<string | null>;
+  /** Forgot-password step 2: verify the recovery code → signs the user in to set a new password. */
+  verifyRecoveryOtp: (email: string, token: string) => Promise<string | null>;
+  /** Update the signed-in user's own profile row (e.g. display name). */
+  updateProfile: (fields: { name?: string | null }) => Promise<string | null>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -31,7 +44,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const fetchProfile = useCallback(async (userId: string, email: string) => {
     const { data } = await supabase
       .from('profiles')
-      .select('id, email, plan')
+      .select('*')                 // '*' so an added `name` column is picked up without breaking older schemas
       .eq('id', userId)
       .single();
     if (data) {
@@ -69,27 +82,79 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => subscription.unsubscribe();
   }, [fetchProfile]);
 
+  const NOT_CONFIGURED = 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env';
+
   const signIn = useCallback(async (email: string, password: string, rememberMe = true): Promise<string | null> => {
     if (!EMAIL_RE.test(email.trim())) return 'Please enter a valid email address.';
-    if (!SUPABASE_CONFIGURED) return 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env';
-    // Use the sessionStorage-backed client when not remembering so token refreshes
-    // also stay in sessionStorage — the localStorage approach was undone on first refresh.
-    const client = rememberMe ? supabase : supabaseSession;
-    const { error } = await client.auth.signInWithPassword({ email: email.trim(), password });
+    if (!SUPABASE_CONFIGURED) return NOT_CONFIGURED;
+    // Persist the choice BEFORE signing in so the session token is written to the
+    // matching store (localStorage when remembered, sessionStorage when not).
+    setRemember(rememberMe);
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     return error?.message ?? null;
   }, []);
 
-  const signUp = useCallback(async (email: string, password: string): Promise<{ error: string | null; confirmed: boolean }> => {
-    if (!EMAIL_RE.test(email.trim())) return { error: 'Please enter a valid email address.', confirmed: false };
-    if (!SUPABASE_CONFIGURED) return { error: 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env', confirmed: false };
-    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
-    if (error) return { error: error.message, confirmed: false };
-    // If Supabase email confirmation is disabled, a session is returned immediately
-    return { error: null, confirmed: !!data.session };
+  const requestSignupOtp = useCallback(async (email: string): Promise<string | null> => {
+    if (!EMAIL_RE.test(email.trim())) return 'Please enter a valid email address.';
+    if (!SUPABASE_CONFIGURED) return NOT_CONFIGURED;
+    // A signed-up user should be remembered by default.
+    setRemember(true);
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { shouldCreateUser: true },
+    });
+    return error?.message ?? null;
+  }, []);
+
+  const verifyOtp = useCallback(async (email: string, token: string): Promise<string | null> => {
+    if (!SUPABASE_CONFIGURED) return NOT_CONFIGURED;
+    if (!/^\d{6,10}$/.test(token.trim())) return 'Enter the code from your email.';
+    const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: token.trim(), type: 'email' });
+    return error?.message ?? null;
+  }, []);
+
+  const setPassword = useCallback(async (password: string): Promise<string | null> => {
+    if (!SUPABASE_CONFIGURED) return NOT_CONFIGURED;
+    const { error } = await supabase.auth.updateUser({ password });
+    return error?.message ?? null;
+  }, []);
+
+  const resendOtp = useCallback(async (email: string): Promise<string | null> => {
+    if (!SUPABASE_CONFIGURED) return NOT_CONFIGURED;
+    const { error } = await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { shouldCreateUser: true },
+    });
+    return error?.message ?? null;
+  }, []);
+
+  const requestPasswordReset = useCallback(async (email: string): Promise<string | null> => {
+    if (!EMAIL_RE.test(email.trim())) return 'Please enter a valid email address.';
+    if (!SUPABASE_CONFIGURED) return NOT_CONFIGURED;
+    // Sends the "Reset Password" email; with {{ .Token }} in that template it carries a code.
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim());
+    return error?.message ?? null;
+  }, []);
+
+  const verifyRecoveryOtp = useCallback(async (email: string, token: string): Promise<string | null> => {
+    if (!SUPABASE_CONFIGURED) return NOT_CONFIGURED;
+    if (!/^\d{6,10}$/.test(token.trim())) return 'Enter the code from your email.';
+    const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: token.trim(), type: 'recovery' });
+    return error?.message ?? null;
   }, []);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
+  }, []);
+
+  const updateProfile = useCallback(async (fields: { name?: string | null }): Promise<string | null> => {
+    if (!SUPABASE_CONFIGURED) return NOT_CONFIGURED;
+    const { data: { user: u } } = await supabase.auth.getUser();
+    if (!u) return 'You must be signed in.';
+    const { data, error } = await supabase.from('profiles').update(fields).eq('id', u.id).select('*').single();
+    if (error) return error.message;
+    if (data) setProfile(data as Profile);
+    return null;
   }, []);
 
   const refreshProfile = useCallback(async () => {
@@ -106,7 +171,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     <AuthContext.Provider value={{
       user, profile, plan, isAdmin, isPremium, loading,
       authModalOpen, openAuthModal: () => setAuthModalOpen(true), closeAuthModal: () => setAuthModalOpen(false),
-      signIn, signUp, signOut, refreshProfile,
+      signIn, requestSignupOtp, verifyOtp, setPassword, resendOtp,
+      requestPasswordReset, verifyRecoveryOtp, updateProfile, signOut, refreshProfile,
     }}>
       {children}
     </AuthContext.Provider>

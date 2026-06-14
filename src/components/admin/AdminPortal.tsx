@@ -5,6 +5,7 @@ import {
   ArrowLeft, Sun, Moon, ShieldCheck, Search, ChevronUp, ChevronDown,
   Download, BarChart3, LayoutDashboard, DollarSign, ChevronLeft, ChevronRight,
   CheckSquare, Square, ToggleLeft, ToggleRight, Loader2,
+  Ban, Trash2, AlertTriangle, ShieldOff,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../context/AuthContext';
@@ -85,6 +86,10 @@ export const AdminPortal: React.FC<Props> = ({ onBack }) => {
   const [page,        setPage]        = useState(1);
   const [selected,    setSelected]    = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [banned,      setBanned]      = useState<Set<string>>(new Set());
+  const [confirm,     setConfirm]     = useState<{ u: AdminUser; action: 'delete' | 'ban' | 'unban' } | null>(null);
+  const [actioning,   setActioning]   = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -190,6 +195,39 @@ export const AdminPortal: React.FC<Props> = ({ onBack }) => {
       setSelected(new Set());
     }
     setBulkLoading(false);
+  };
+
+  // Delete / ban / unban go through the admin-user-action edge function, which holds
+  // the service-role key server-side and re-checks the caller is an admin. invoke()
+  // automatically attaches the current user's JWT.
+  const runAction = async () => {
+    if (!confirm) return;
+    const { u, action } = confirm;
+    setActioning(true); setActionError(null);
+    const { data, error: err } = await supabase.functions.invoke('admin-user-action', {
+      body: { action, userId: u.id },
+    });
+    setActioning(false);
+
+    if (err) {
+      // Surface the server's message (it lives on the error's Response context).
+      let msg = err.message;
+      try {
+        const body = (await (err as { context?: Response }).context?.json()) as { error?: string } | undefined;
+        if (body?.error) msg = body.error;
+      } catch { /* keep err.message */ }
+      setActionError(msg);
+      return;
+    }
+    if (data?.error) { setActionError(data.error); return; }
+
+    if (action === 'delete') {
+      setUsers(prev => prev.filter(p => p.id !== u.id));
+      setSelected(prev => { const n = new Set(prev); n.delete(u.id); return n; });
+    } else {
+      setBanned(prev => { const n = new Set(prev); action === 'ban' ? n.add(u.id) : n.delete(u.id); return n; });
+    }
+    setConfirm(null);
   };
 
   const exportCSV = () => {
@@ -479,8 +517,9 @@ export const AdminPortal: React.FC<Props> = ({ onBack }) => {
                       ) : paginated.length === 0 ? (
                         <tr><td colSpan={5} className="px-5 py-12 text-center text-faint">{search ? 'No users match your search.' : 'No users yet.'}</td></tr>
                       ) : paginated.map((u, i) => {
-                        const isMe  = u.email === user?.email;
-                        const isSel = selected.has(u.id);
+                        const isMe     = u.email === user?.email;
+                        const isSel    = selected.has(u.id);
+                        const isBanned = banned.has(u.id);
                         return (
                           <motion.tr key={u.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.025 }}
                             className={`border-b border-line last:border-0 transition-colors ${isSel ? 'bg-blue-500/5' : 'hover:bg-elevated/30'}`}>
@@ -496,6 +535,7 @@ export const AdminPortal: React.FC<Props> = ({ onBack }) => {
                                 </div>
                                 <span className="truncate max-w-[200px]">{u.email}</span>
                                 {isMe && <span className="text-[9px] text-amber-400 font-bold shrink-0">you</span>}
+                                {isBanned && <span className="text-[9px] text-red-400 font-bold shrink-0 flex items-center gap-0.5"><ShieldOff className="w-2.5 h-2.5" />banned</span>}
                               </div>
                             </td>
                             <td className="px-4 py-3">
@@ -507,16 +547,32 @@ export const AdminPortal: React.FC<Props> = ({ onBack }) => {
                               </span>
                             </td>
                             <td className="px-4 py-3 text-faint hidden sm:table-cell">{fmtDate(u.created_at)}</td>
-                            <td className="px-4 py-3 text-right">
-                              <button onClick={() => togglePlan(u)} disabled={updatingId === u.id || isMe}
-                                title={isMe ? "Can't change your own plan" : undefined}
-                                className={`px-3 py-1 rounded-lg text-[10px] font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                                  u.plan === 'premium'
-                                    ? 'bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20'
-                                    : 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
-                                }`}>
-                                {updatingId === u.id ? <Loader2 className="w-3 h-3 animate-spin inline" /> : u.plan === 'premium' ? 'Downgrade' : 'Upgrade'}
-                              </button>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button onClick={() => togglePlan(u)} disabled={updatingId === u.id || isMe}
+                                  title={isMe ? "Can't change your own plan" : undefined}
+                                  className={`px-3 py-1 rounded-lg text-[10px] font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                                    u.plan === 'premium'
+                                      ? 'bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20'
+                                      : 'bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20'
+                                  }`}>
+                                  {updatingId === u.id ? <Loader2 className="w-3 h-3 animate-spin inline" /> : u.plan === 'premium' ? 'Downgrade' : 'Upgrade'}
+                                </button>
+                                {/* Ban / Unban */}
+                                <button onClick={() => { setActionError(null); setConfirm({ u, action: isBanned ? 'unban' : 'ban' }); }}
+                                  disabled={isMe}
+                                  title={isMe ? "Can't ban yourself" : isBanned ? 'Unban user' : 'Ban user'}
+                                  className="p-1.5 rounded-lg border border-line text-faint hover:text-amber-400 hover:border-amber-500/30 hover:bg-amber-500/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                  {isBanned ? <ShieldCheck className="w-3.5 h-3.5" /> : <Ban className="w-3.5 h-3.5" />}
+                                </button>
+                                {/* Delete */}
+                                <button onClick={() => { setActionError(null); setConfirm({ u, action: 'delete' }); }}
+                                  disabled={isMe}
+                                  title={isMe ? "Can't delete yourself" : 'Delete user'}
+                                  className="p-1.5 rounded-lg border border-line text-faint hover:text-red-400 hover:border-red-500/30 hover:bg-red-500/10 transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </motion.tr>
                         );
@@ -565,6 +621,64 @@ export const AdminPortal: React.FC<Props> = ({ onBack }) => {
 
         </AnimatePresence>
       </main>
+
+      {/* Delete / ban / unban confirmation */}
+      <AnimatePresence>
+        {confirm && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+            onClick={() => !actioning && setConfirm(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-surface border border-line-strong rounded-2xl shadow-2xl w-full max-w-sm p-6"
+            >
+              {(() => {
+                const danger = confirm.action === 'delete';
+                const title  = confirm.action === 'delete' ? 'Delete user?' : confirm.action === 'ban' ? 'Ban user?' : 'Unban user?';
+                const Icon   = confirm.action === 'delete' ? Trash2 : confirm.action === 'ban' ? Ban : ShieldCheck;
+                const body   =
+                  confirm.action === 'delete' ? 'This permanently removes the account and its data — it cannot be undone.'
+                  : confirm.action === 'ban'  ? 'They will be blocked from signing in until you unban them.'
+                  :                             'They will be able to sign in again.';
+                const verb   = confirm.action === 'delete' ? 'Delete' : confirm.action === 'ban' ? 'Ban' : 'Unban';
+                return (
+                  <>
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${danger ? 'bg-red-500/15 border-red-500/30 text-red-400' : 'bg-amber-500/15 border-amber-500/30 text-amber-400'}`}>
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold text-content">{title}</h3>
+                        <p className="text-xs text-muted mt-0.5 break-all">{confirm.u.email}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted leading-relaxed mb-4">{body}</p>
+                    {actionError && (
+                      <div className="flex items-start gap-2 text-[11px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 mb-3 leading-relaxed">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" /> {actionError}
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <button onClick={() => setConfirm(null)} disabled={actioning}
+                        className="flex-1 py-2 rounded-lg text-xs font-semibold bg-elevated text-content border border-line-strong hover:bg-hover transition-all disabled:opacity-50">
+                        Cancel
+                      </button>
+                      <button onClick={runAction} disabled={actioning}
+                        className={`flex-1 py-2 rounded-lg text-xs font-semibold text-white transition-all flex items-center justify-center gap-2 disabled:opacity-60 ${danger ? 'bg-red-600 hover:bg-red-500' : 'bg-amber-600 hover:bg-amber-500'}`}>
+                        {actioning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Icon className="w-3.5 h-3.5" />}
+                        {verb}
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
