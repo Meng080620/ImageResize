@@ -8,16 +8,18 @@ import { SettingsPanel } from './components/layout/SettingsPanel';
 import { PreviewArea } from './components/editor/PreviewArea';
 import { SandboxView } from './components/sandbox/SandboxView';
 
-const AppContent: React.FC = () => {
+interface AppContentProps {
+  onBackToLanding: () => void;
+}
+
+const AppContent: React.FC<AppContentProps> = ({ onBackToLanding }) => {
   const { currentTab, toast, isPreviewOpen, setIsPreviewOpen, selectedImage, settings, modalBg, showAlignmentGrid, setShowAlignmentGrid, previewZoom, setPreviewZoom } = useEditor();
 
   return (
     <div className="min-h-screen bg-base text-content font-sans flex flex-col selection:bg-blue-500/30 antialiased">
-      
-      {/* Dynamic Toast Notifications */}
       <AnimatePresence>
         {toast && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: -50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
@@ -37,7 +39,7 @@ const AppContent: React.FC = () => {
         )}
       </AnimatePresence>
 
-      <Header />
+      <Header onBackToLanding={onBackToLanding} />
 
       <main className="flex-1 max-w-[1600px] w-full mx-auto p-4 md:p-6 flex flex-col gap-6">
         <AnimatePresence mode="wait">
@@ -79,18 +81,16 @@ const AppContent: React.FC = () => {
         </div>
       </footer>
 
-      {/* Advanced Interactive Live Shadow Lab Modal */}
       <AnimatePresence>
         {isPreviewOpen && selectedImage && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-hidden"
           >
             <div className="absolute inset-0 cursor-default" onClick={() => setIsPreviewOpen(false)} />
-            
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: "spring", duration: 0.35, bounce: 0.15 }}
+              transition={{ type: 'spring', duration: 0.35, bounce: 0.15 }}
               className="bg-surface rounded-xl overflow-hidden shadow-2xl border border-line-strong max-w-5xl w-full flex flex-col z-10 relative"
             >
               <div className="flex items-center justify-between p-4 px-6 border-b border-line bg-base">
@@ -103,7 +103,7 @@ const AppContent: React.FC = () => {
                     <p className="text-[10px] text-faint">{selectedImage.name}</p>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setIsPreviewOpen(false)}
                   className="p-1.5 hover:bg-elevated rounded-md text-muted hover:text-content transition-colors"
                 >
@@ -113,27 +113,27 @@ const AppContent: React.FC = () => {
 
               <div className="p-6 flex flex-col bg-base">
                 <div className="flex items-center justify-between gap-4 mb-4">
-                  <div className="flex items-center gap-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input 
-                        type="checkbox" checked={showAlignmentGrid} onChange={(e) => setShowAlignmentGrid(e.target.checked)}
-                        className="w-3.5 h-3.5 rounded bg-track accent-blue-500 border-line-strong"
-                      />
-                      <span className="text-muted text-xs font-medium">Grid Lines</span>
-                    </label>
-                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox" checked={showAlignmentGrid} onChange={(e) => setShowAlignmentGrid(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded bg-track accent-blue-500 border-line-strong"
+                      aria-label="Toggle alignment grid lines"
+                    />
+                    <span className="text-muted text-xs font-medium">Grid Lines</span>
+                  </label>
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-faint">Zoom</span>
-                    <input 
+                    <input
                       type="range" min="50" max="150" value={previewZoom} onChange={(e) => setPreviewZoom(Number(e.target.value))}
                       className="w-24 h-1.5 rounded-lg bg-track accent-blue-500"
+                      aria-label={`Preview zoom: ${previewZoom}%`}
                     />
                     <span className="text-muted w-8 text-right">{previewZoom}%</span>
                   </div>
                 </div>
 
                 <div className="w-full flex justify-center items-center py-4">
-                  <div 
+                  <div
                     className={`relative transition-all rounded-lg overflow-hidden flex items-center justify-center border border-line-strong ${
                       modalBg === 'checkerboard' ? 'checkerboard' : ''
                     }`}
@@ -141,7 +141,7 @@ const AppContent: React.FC = () => {
                       aspectRatio: settings.aspectRatioType === 'custom' ? `${settings.customWidth}/${settings.customHeight}` : settings.aspectRatioType.replace(':', '/'),
                       transform: `scale(${previewZoom / 100})`,
                       height: '500px',
-                      backgroundColor: modalBg === 'white' ? '#ffffff' : modalBg === 'gray' ? '#f3f4f6' : modalBg === 'cream' ? '#fdfbf7' : modalBg === 'dark' ? '#111827' : undefined
+                      backgroundColor: modalBg === 'white' ? '#ffffff' : modalBg === 'gray' ? '#f3f4f6' : modalBg === 'cream' ? '#fdfbf7' : modalBg === 'dark' ? '#111827' : undefined,
                     }}
                   >
                     {showAlignmentGrid && (
@@ -166,10 +166,14 @@ const AppContent: React.FC = () => {
   );
 };
 
-export default function App() {
+interface AppProps {
+  onBackToLanding: () => void;
+}
+
+export default function App({ onBackToLanding }: AppProps) {
   return (
     <EditorProvider>
-      <AppContent />
+      <AppContent onBackToLanding={onBackToLanding} />
     </EditorProvider>
   );
 }
