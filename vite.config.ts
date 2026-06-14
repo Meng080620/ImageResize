@@ -9,7 +9,9 @@ import {defineConfig} from 'vite';
 // because BiRefNet inference on a big product photo can take tens of seconds.
 const rembgProxy = {
   '/rembg': {
-    target: process.env.REMBG_TARGET || 'http://127.0.0.1:7000',
+    // Default 7001 (not rembg's usual 7000) because macOS AirPlay Receiver squats on
+    // 7000 and answers 403, silently shadowing rembg. Run `rembg s --port 7001`.
+    target: process.env.REMBG_TARGET || 'http://127.0.0.1:7001',
     changeOrigin: true,
     proxyTimeout: 120000,
     rewrite: (p: string) => p.replace(/^\/rembg/, ''),

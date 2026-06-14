@@ -236,13 +236,14 @@ async function probeRembg(): Promise<boolean> {
   try {
     // GET the remove route with no params: rembg replies 422 (route exists but the
     // required file/url is missing) when it's up, without running any inference.
-    // HEAD is unreliable — rembg 2.x returns 404 for it. A real 404 means the route
-    // is absent; 5xx means the Vite proxy target is down (rembg not running).
+    // HEAD is unreliable — rembg 2.x returns 404 for it. We accept only the statuses
+    // a real rembg returns; anything else (e.g. macOS AirPlay on :7000 answers 403,
+    // a dead proxy target answers 5xx, a missing route 404) counts as unavailable.
     const res = await fetch(`${REMBG_BASE}/api/remove`, {
       method: 'GET',
       signal: AbortSignal.timeout(800),
     });
-    rembgAvailable = res.status !== 404 && res.status < 500;
+    rembgAvailable = [200, 405, 422].includes(res.status);
   } catch {
     rembgAvailable = false;
   }
@@ -912,6 +913,87 @@ async function runEdgePipeline(
   return refined;
 }
 
+// ── BiRefNet in the browser (transformers.js + WebGPU) ───────────────────────
+// The MIT-licensed BiRefNet model run fully on-device — the same quality that
+// fixed white-on-white products, but with NO server, NO uploads, and NO per-image
+// cost (unlike fal.ai). The ~490MB fp16 weights download once and are cached by the
+// browser; subsequent runs are instant. Only used on the 'quality' setting when
+// WebGPU is available — on CPU/WASM a model this size is impractical.
+interface BiRefNetBundle {
+  // Loosely typed: transformers.js classes are resolved at runtime via dynamic import.
+  model: (inputs: { input_image: unknown }) => Promise<{ output_image: BiRefTensor }>;
+  processor: (image: unknown) => Promise<{ pixel_values: unknown }>;
+  fromURL: (url: string) => Promise<BiRefImage>;
+  fromTensor: (t: BiRefTensor) => BiRefImage;
+}
+interface BiRefTensor { sigmoid(): BiRefTensor; mul(n: number): BiRefTensor; to(dtype: string): BiRefTensor; [i: number]: BiRefTensor; }
+interface BiRefImage { width: number; height: number; data: Uint8Array; channels: number; resize(w: number, h: number): BiRefImage; }
+
+let birefnetBundle: Promise<BiRefNetBundle> | null = null;
+
+function loadBiRefNetWeb(onProgress?: (pct: number, stage: BgStage) => void): Promise<BiRefNetBundle> {
+  if (!birefnetBundle) {
+    birefnetBundle = (async () => {
+      const tf = await import('@huggingface/transformers');
+      const { AutoModel, AutoProcessor, RawImage } = tf as unknown as {
+        AutoModel: { from_pretrained: (id: string, opts: Record<string, unknown>) => Promise<unknown> };
+        AutoProcessor: { from_pretrained: (id: string) => Promise<unknown> };
+        RawImage: { fromURL: (u: string) => Promise<BiRefImage>; fromTensor: (t: BiRefTensor) => BiRefImage };
+      };
+      const ID = 'onnx-community/BiRefNet-ONNX';
+      const model = await AutoModel.from_pretrained(ID, {
+        dtype: 'fp16',
+        device: 'webgpu',
+        progress_callback: (p: { status?: string; progress?: number }) => {
+          if (p.status === 'progress' && typeof p.progress === 'number') onProgress?.(Math.round(p.progress), 'download');
+        },
+      });
+      const processor = await AutoProcessor.from_pretrained(ID);
+      return {
+        model: model as BiRefNetBundle['model'],
+        processor: processor as BiRefNetBundle['processor'],
+        fromURL: RawImage.fromURL,
+        fromTensor: RawImage.fromTensor,
+      };
+    })();
+    birefnetBundle.catch(() => { birefnetBundle = null; }); // let a failed load retry
+  }
+  return birefnetBundle;
+}
+
+async function removeBackgroundViaBiRefNetWeb(
+  srcUrl: string,
+  onProgress?: (pct: number, stage: BgStage) => void,
+): Promise<string> {
+  const { model, processor, fromURL, fromTensor } = await loadBiRefNetWeb(onProgress);
+  onProgress?.(40, 'process');
+  const image = await fromURL(srcUrl);
+  const { pixel_values } = await processor(image);
+  const { output_image } = await model({ input_image: pixel_values });
+  onProgress?.(80, 'process');
+  // output_image[0] is the single-channel alpha matte logits → sigmoid → 0–255 → image size
+  const mask = fromTensor(output_image[0].sigmoid().mul(255).to('uint8')).resize(image.width, image.height);
+  const url = await compositeGrayMaskAsAlpha(srcUrl, mask.data, mask.channels);
+  onProgress?.(100, 'process');
+  return url;
+}
+
+// Apply a grayscale alpha matte (resized to the source's dimensions) as the alpha
+// channel over the ORIGINAL RGB — same idea as the ISNet colour-restore.
+async function compositeGrayMaskAsAlpha(srcUrl: string, mask: Uint8Array, channels: number): Promise<string> {
+  const img = await createImageBitmap(await (await fetch(srcUrl)).blob());
+  const w = img.width, h = img.height;
+  const canvas = new OffscreenCanvas(w, h);
+  const ctx = canvas.getContext('2d')!;
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const d = imageData.data;
+  for (let i = 0; i < w * h; i++) d[i * 4 + 3] = mask[i * channels];
+  ctx.putImageData(imageData, 0, 0);
+  const blob = await canvas.convertToBlob({ type: 'image/png' });
+  return URL.createObjectURL(blob);
+}
+
 export async function removeImageBackground(
   srcUrl: string,
   onProgress?: (percent: number, stage: BgStage) => void,
@@ -931,11 +1013,22 @@ export async function removeImageBackground(
     }
   }
 
-  // ISNet (DIS salient-object model) is the primary path for ALL images, including
-  // white-on-white products: it returns a complete silhouette where the hand-rolled
-  // Sobel/BFS edge path leaks through the low-contrast outer contour and guts the
-  // product face. Edge detection is kept only as a fallback for the degenerate case
-  // where ISNet removes essentially everything (see DEGENERATE_MASK_THRESHOLD below).
+  // Quality mode on a WebGPU browser → BiRefNet on-device (best edges on white-on-white,
+  // free, no uploads). Falls through to ISNet if it fails or the model can't load.
+  const hasWebGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
+  if (bgQuality === 'quality' && hasWebGPU) {
+    try {
+      return await removeBackgroundViaBiRefNetWeb(srcUrl, onProgress);
+    } catch (e) {
+      console.warn('[birefnet-web] failed, falling back to ISNet:', e);
+    }
+  }
+
+  // ISNet (DIS salient-object model) — the fallback / lighter path for fast & balanced
+  // modes (40–80MB vs BiRefNet's ~490MB) and when WebGPU/BiRefNet is unavailable. It
+  // returns a complete silhouette where the hand-rolled Sobel/BFS edge path leaks
+  // through the low-contrast outer contour. Edge detection stays a last resort for the
+  // degenerate case where ISNet removes essentially everything (DEGENERATE_MASK_THRESHOLD).
   const { removeBackground } = await import('@imgly/background-removal');
 
   // Step 1: boost contrast so ISNet sees a sharper subject/background boundary.

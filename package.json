@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@imgly/background-removal": "^1.7.0",
     "@stripe/stripe-js": "^9.8.0",
     "@supabase/supabase-js": "^2.108.1",
