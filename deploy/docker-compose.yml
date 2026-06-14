@@ -1,0 +1,39 @@
+# rembg (BiRefNet) + Caddy (SPA + /rembg proxy). One host, one command.
+# Build the SPA first:  npm run build   (produces ../dist, mounted read-only into Caddy)
+services:
+  rembg:
+    build:
+      context: .
+      dockerfile: Dockerfile.rembg
+    restart: unless-stopped
+    expose:
+      - "7000"            # internal to the compose network only — never published to the host
+    healthcheck:
+      # GET /api returns 200 when rembg is up (same signal the app's probe relies on).
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:7000/api', timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s   # first boot loads the model
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - rembg
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Set to your domain for auto-HTTPS, e.g. SITE_ADDRESS=cutouts.example.com
+      # Leave unset to serve plain HTTP on :80 (fine for an IP-only Oracle box).
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../dist:/srv:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

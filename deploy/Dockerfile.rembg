@@ -1,0 +1,21 @@
+# rembg + BiRefNet inference server, model pre-baked.
+# Multi-arch: builds for arm64 (Oracle Cloud Free Tier Ampere A1) and amd64.
+# Inside the container there is no macOS AirPlay collision, so it binds :7000.
+FROM python:3.12-slim
+
+# Runtime libs opencv / onnxruntime need (headless).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libglib2.0-0 libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# rembg 2.x does NOT pull onnxruntime via [cli] — install it explicitly.
+RUN pip install --no-cache-dir "rembg[cli]" onnxruntime
+
+# Pre-download BiRefNet during the build so the FIRST request isn't a
+# multi-hundred-MB stall. new_session triggers the pooch download + caches it
+# into the image layer.
+RUN python -c "from rembg import new_session; new_session('birefnet-general')"
+
+EXPOSE 7000
+# rembg s binds 0.0.0.0 by default; Caddy reaches it over the compose network.
+CMD ["rembg", "s", "--port", "7000"]
