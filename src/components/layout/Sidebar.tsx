@@ -1,23 +1,62 @@
 import React, { useRef, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Upload, Trash2, Image as ImageIcon, FileArchive, RefreshCw, GripVertical } from 'lucide-react';
+import { Upload, Trash2, Image as ImageIcon, FileArchive, RefreshCw, GripVertical, AlertTriangle, X, Lightbulb, Plus, Layers } from 'lucide-react';
 import { useEditor } from '../../context/EditorContext';
+import { useAuth } from '../../context/AuthContext';
+import { PremiumGate } from '../auth/PremiumGate';
 import { getSampleProducts } from '../../utils/sampleImages';
+import { MultiExportModal } from '../editor/MultiExportModal';
 
 const spring = { type: 'spring' as const, stiffness: 500, damping: 35, mass: 0.8 };
 
 export const Sidebar: React.FC = () => {
-  const { 
-    images, setImages, selectedImageId, setSelectedImageId, 
+  const {
+    images, setImages, selectedImageId, setSelectedImageId,
     handleFiles, handleRemoveImage, handleClearAll, moveImage,
     dragActive, onDrag, onDrop, stats, imagesAnalysis,
     exportSizeSelection, setExportSizeSelection, customExportSizeInput, setCustomExportSizeInput,
-    handleDownloadZipWithSize, isZipping, activeExportSize,
+    handleDownloadZipWithSize, isZipping, activeExportSize, isProcessing,
+    handleRemoveBackground, handleUpscale, isBgProcessing, isUpscaling,
   } = useEditor();
 
+  const { isPremium } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
+  const [showIssuesPanel, setShowIssuesPanel] = useState(false);
+  const [tipsHidden, setTipsHidden] = useState(false);
+  const [batchExportOpen, setBatchExportOpen] = useState(false);
+
+  const issueGroups = useMemo(() => {
+    const groups: Record<string, typeof imagesAnalysis> = {};
+    for (const img of imagesAnalysis) {
+      for (const issue of img.issues) {
+        if (!groups[issue]) groups[issue] = [];
+        groups[issue].push(img);
+      }
+    }
+    return groups;
+  }, [imagesAnalysis]);
+
+  const recommendations = useMemo(() => {
+    if (images.length === 0) return [];
+    const tips: { id: 'bg' | 'upscale'; title: string; hint: string; actionLabel: string }[] = [];
+    const hasBgNotRemoved = images.some(img => !img.bgRemoved);
+    const lowResCount = imagesAnalysis.filter(img => img.issues.includes('Low resolution')).length;
+    if (hasBgNotRemoved) tips.push({
+      id: 'bg',
+      title: 'Remove Background',
+      hint: 'AI strips the backdrop — select an image then click Apply.',
+      actionLabel: 'Apply to selected',
+    });
+    if (lowResCount > 0) tips.push({
+      id: 'upscale',
+      title: `${lowResCount} image${lowResCount > 1 ? 's are' : ' is'} low-res`,
+      hint: 'AI sharpens before export — select an image then click Apply.',
+      actionLabel: 'Upscale 2× selected',
+    });
+    return tips.slice(0, 2);
+  }, [images, imagesAnalysis]);
 
   const orderedItems = useMemo(() => {
     if (dragIndex === null || overIndex === null || dragIndex === overIndex) return imagesAnalysis;
@@ -64,25 +103,42 @@ export const Sidebar: React.FC = () => {
         )}
       </div>
 
-      <motion.div
-        onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}
-        onClick={() => fileInputRef.current?.click()}
-        animate={{
-          borderColor: dragActive ? 'rgba(59,130,246,0.6)' : 'rgba(255,255,255,0.1)',
-          backgroundColor: dragActive ? 'rgba(59,130,246,0.08)' : 'rgba(39,39,42,0)',
-          scale: dragActive ? 1.01 : 1,
-        }}
-        transition={{ duration: 0.2 }}
-        className="border border-dashed rounded-xl p-4 text-center cursor-pointer mb-4 shrink-0 hover:border-line-strong hover:bg-elevated/50"
-      >
-        <input 
-          type="file" ref={fileInputRef}
-          onChange={(e) => e.target.files && handleFiles(e.target.files)}
-          multiple accept="image/*" className="hidden" 
-        />
-        <Upload className="w-5 h-5 text-muted mx-auto mb-2" />
-        <p className="text-xs font-medium text-muted">Upload Images</p>
-      </motion.div>
+      <input
+        type="file" ref={fileInputRef}
+        onChange={(e) => e.target.files && handleFiles(e.target.files)}
+        multiple accept="image/*" className="hidden"
+      />
+
+      {images.length === 0 ? (
+        <motion.div
+          onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}
+          onClick={() => fileInputRef.current?.click()}
+          animate={{
+            borderColor: dragActive ? 'rgba(59,130,246,0.6)' : 'rgba(255,255,255,0.1)',
+            backgroundColor: dragActive ? 'rgba(59,130,246,0.08)' : 'rgba(39,39,42,0)',
+            scale: dragActive ? 1.01 : 1,
+          }}
+          transition={{ duration: 0.2 }}
+          className="border border-dashed rounded-xl p-6 text-center cursor-pointer mb-4 shrink-0 hover:border-line-strong hover:bg-elevated/50"
+        >
+          <Upload className="w-5 h-5 text-muted mx-auto mb-2" />
+          <p className="text-xs font-medium text-muted">Drag & drop or click to upload</p>
+          <p className="text-[10px] text-faint mt-1">JPG, PNG, WEBP — multiple files supported</p>
+        </motion.div>
+      ) : (
+        <motion.button
+          onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}
+          onClick={() => fileInputRef.current?.click()}
+          animate={{
+            borderColor: dragActive ? 'rgba(59,130,246,0.6)' : 'transparent',
+            backgroundColor: dragActive ? 'rgba(59,130,246,0.08)' : 'rgba(39,39,42,0)',
+          }}
+          transition={{ duration: 0.15 }}
+          className="w-full mb-3 shrink-0 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-line text-faint hover:text-muted hover:border-line-strong hover:bg-elevated/40 transition-colors text-xs font-medium"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add More Images
+        </motion.button>
+      )}
 
       <AnimatePresence mode="popLayout">
         {images.length > 0 && (
@@ -117,11 +173,111 @@ export const Sidebar: React.FC = () => {
               </motion.span>
             </div>
             {stats.totalIssues > 0 && (
-              <div className="flex-1 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20 flex items-center justify-between">
-                <span className="text-xs text-red-400">Issues</span>
+              <button
+                onClick={() => setShowIssuesPanel(v => !v)}
+                className="flex-1 bg-red-500/10 px-3 py-2 rounded-lg border border-red-500/20 flex items-center justify-between hover:bg-red-500/20 transition-colors cursor-pointer"
+              >
+                <span className="text-xs text-red-400 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> Issues
+                </span>
                 <span className="text-sm font-semibold text-red-400">{stats.totalIssues}</span>
-              </div>
+              </button>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {recommendations.length > 0 && !tipsHidden && (
+          <motion.div
+            key="tips"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="mb-3 shrink-0 overflow-hidden"
+          >
+            <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-semibold text-blue-400 flex items-center gap-1.5">
+                  <Lightbulb className="w-3 h-3" /> Recommended
+                </span>
+                <button onClick={() => setTipsHidden(true)} className="text-faint hover:text-muted transition-colors">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="flex flex-col divide-y divide-blue-500/10">
+                {recommendations.map(tip => {
+                  const busy =
+                    tip.id === 'bg'      ? (selectedImageId ? isBgProcessing(selectedImageId) : false) :
+                    (selectedImageId ? isUpscaling(selectedImageId) : false);
+
+                  const onAction = () => {
+                    if (tip.id === 'bg' && selectedImageId)      handleRemoveBackground(selectedImageId);
+                    if (tip.id === 'upscale' && selectedImageId) handleUpscale(selectedImageId, 2);
+                  };
+
+                  const needsSelection = (tip.id === 'bg' || tip.id === 'upscale') && !selectedImageId;
+
+                  return (
+                    <div key={tip.id} className="py-2 first:pt-0 last:pb-0 flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-medium text-content">{tip.title}</p>
+                        <p className="text-[10px] text-faint mt-0.5 leading-relaxed">
+                          {needsSelection ? 'Select an image from the queue first.' : tip.hint}
+                        </p>
+                      </div>
+                      <button
+                        onClick={onAction}
+                        disabled={busy || needsSelection}
+                        className="shrink-0 mt-0.5 px-2 py-1 rounded text-[10px] font-semibold bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 border border-blue-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {busy ? '…' : tip.actionLabel}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showIssuesPanel && stats.totalIssues > 0 && (
+          <motion.div
+            key="issues-panel"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="mb-3 overflow-hidden shrink-0"
+          >
+            <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-semibold text-red-400 uppercase tracking-wider">Issues Found</span>
+                <button onClick={() => setShowIssuesPanel(false)} className="text-faint hover:text-muted transition-colors">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              {Object.entries(issueGroups).map(([issue, imgs]) => (
+                <div key={issue} className="flex flex-col gap-1">
+                  <span className="text-[10px] text-red-400/80 font-medium">{issue}</span>
+                  <div className="flex flex-col gap-0.5 pl-2 border-l border-red-500/20">
+                    {imgs.map(img => (
+                      <button
+                        key={img.id}
+                        onClick={() => { setSelectedImageId(img.id); setShowIssuesPanel(false); }}
+                        className="text-[10px] text-faint hover:text-content text-left truncate transition-colors"
+                        title={img.name}
+                      >
+                        {img.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -159,11 +315,14 @@ export const Sidebar: React.FC = () => {
                   exit={{ opacity: 0, x: -12, transition: { duration: 0.15 } }}
                   transition={spring}
                   draggable
-                  onDragStart={() => setDragIndex(imagesAnalysis.findIndex(i => i.id === img.id))}
+                  onDragStart={() => {
+                    const idx = imagesAnalysis.findIndex(i => i.id === img.id);
+                    if (idx !== -1) setDragIndex(idx);
+                  }}
                   onDragOver={(e) => {
                     e.preventDefault();
                     const targetIndex = imagesAnalysis.findIndex(i => i.id === img.id);
-                    if (dragIndex !== null && targetIndex !== dragIndex) setOverIndex(targetIndex);
+                    if (dragIndex !== null && targetIndex !== -1 && targetIndex !== dragIndex) setOverIndex(targetIndex);
                   }}
                   onDragEnd={handleDragEnd}
                   onClick={() => setSelectedImageId(img.id)}
@@ -177,6 +336,12 @@ export const Sidebar: React.FC = () => {
                     <GripVertical className="w-3 h-3 text-faint shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
                     <div className="w-10 h-10 rounded bg-surface flex-shrink-0 relative overflow-hidden flex items-center justify-center border border-line">
                       <img src={img.originalUrl} alt="" className="max-w-full max-h-full object-contain" />
+                      {img.hasIssue && (
+                        <span
+                          title={img.issues.join(' · ')}
+                          className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-400 border border-surface pointer-events-none"
+                        />
+                      )}
                     </div>
                     <div className="overflow-hidden">
                       <p className="text-xs font-medium text-content truncate pr-4">{img.name}</p>
@@ -203,6 +368,7 @@ export const Sidebar: React.FC = () => {
 
       <AnimatePresence>
         {images.length > 0 && (
+          <>
           <motion.div
             key="export"
             initial={{ opacity: 0, y: 12 }}
@@ -239,29 +405,64 @@ export const Sidebar: React.FC = () => {
                     animate={{ opacity: 1, height: 'auto' }}
                     exit={{ opacity: 0, height: 0 }}
                     transition={{ duration: 0.2 }}
-                    className="flex items-center gap-2 mt-1 overflow-hidden"
+                    className="flex flex-col gap-1 mt-1 overflow-hidden"
                   >
-                    <input 
-                      type="number" value={customExportSizeInput}
-                      onChange={(e) => setCustomExportSizeInput(Number(e.target.value))}
+                    <input
+                      type="number" value={customExportSizeInput} min={1} max={10000}
+                      onChange={(e) => {
+                        const raw = Number(e.target.value);
+                        const clamped = Math.max(1, Math.min(10000, Math.round(raw)));
+                        setCustomExportSizeInput(clamped);
+                      }}
+                      onBlur={(e) => {
+                        const raw = Number(e.target.value);
+                        if (!raw || raw < 1) setCustomExportSizeInput(1);
+                        else if (raw > 10000) setCustomExportSizeInput(10000);
+                      }}
                       className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-xs text-content outline-none focus:border-blue-500 transition-colors duration-200"
+                      aria-label="Custom export size in pixels (1–10000)"
                     />
+                    {(customExportSizeInput < 1 || customExportSizeInput > 10000) && (
+                      <p className="text-xs text-red-400">Must be 1–10000 px</p>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
 
-            <button
-              onClick={() => handleDownloadZipWithSize(activeExportSize)}
-              disabled={isZipping}
-              className={`py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg text-xs shadow-md transition-all duration-200 flex items-center justify-center gap-2 ${
-                isZipping ? 'opacity-70 cursor-not-allowed' : ''
-              }`}
-            >
-              {isZipping ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileArchive className="w-3.5 h-3.5" />}
-              {isZipping ? 'Packaging...' : `Export ZIP (${activeExportSize === 'preview' ? 'Canvas' : `${activeExportSize}px`})`}
-            </button>
+            {isPremium ? (
+              <div className="flex flex-col gap-1.5">
+                <button
+                  onClick={() => handleDownloadZipWithSize(activeExportSize)}
+                  disabled={isZipping || isProcessing}
+                  className={`py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg text-xs shadow-md transition-all duration-200 flex items-center justify-center gap-2 ${
+                    isZipping || isProcessing ? 'opacity-70 cursor-not-allowed' : ''
+                  }`}
+                >
+                  {isZipping || isProcessing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileArchive className="w-3.5 h-3.5" />}
+                  {isZipping ? 'Packaging...' : isProcessing ? 'Processing...' : `Export ZIP (${activeExportSize === 'preview' ? 'Canvas' : `${activeExportSize}px`})`}
+                </button>
+                <button
+                  onClick={() => setBatchExportOpen(true)}
+                  disabled={isZipping || isProcessing || images.length === 0}
+                  className={`py-2 px-4 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-lg text-xs shadow-md transition-all duration-200 flex items-center justify-center gap-2 ${
+                    isZipping || isProcessing || images.length === 0 ? 'opacity-70 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  Multi-Size Batch Export
+                </button>
+              </div>
+            ) : (
+              <PremiumGate label="Batch ZIP Export" inline={false} />
+            )}
           </motion.div>
+          <MultiExportModal
+            open={batchExportOpen}
+            onClose={() => setBatchExportOpen(false)}
+            mode="batch"
+          />
+          </>
         )}
       </AnimatePresence>
     </aside>

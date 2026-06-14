@@ -1,10 +1,10 @@
 import React from 'react';
-import { Sliders, XCircle, Check, ChevronRight } from 'lucide-react';
+import { Sliders, XCircle, Check, ChevronRight, ShieldCheck, AlertTriangle, ArrowUpNarrowWide, Wand2 } from 'lucide-react';
 import { useEditor } from '../../context/EditorContext';
 import { AspectRatioType } from '../../types';
 
 export const SandboxView: React.FC = () => {
-  const { images, settings, setSettings, setCurrentTab } = useEditor();
+  const { images, settings, setSettings, setCurrentTab, imagesAnalysis, setSelectedImageId } = useEditor();
 
   return (
     <div className="bg-surface border border-line rounded-xl p-6 md:p-8 flex flex-col shadow-lg gap-8 min-h-[80vh]">
@@ -123,6 +123,99 @@ export const SandboxView: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* QUALITY REVIEW */}
+      {images.length > 0 && (() => {
+        const reviewed = imagesAnalysis.map(img => {
+          const unresolvedLowRes  = img.issues.includes('Low resolution')     && !img.upscaled;
+          const unresolvedRatio   = img.issues.includes('Extreme aspect ratio');
+          const hasUnresolved     = unresolvedLowRes || unresolvedRatio;
+          return { ...img, unresolvedLowRes, unresolvedRatio, hasUnresolved };
+        });
+        const needsReview = reviewed.filter(i => i.hasUnresolved).length;
+
+        return (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-blue-400" />
+                <h3 className="font-semibold text-sm text-content">Quality Review</h3>
+              </div>
+              <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${
+                needsReview > 0
+                  ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+                  : 'text-green-400 bg-green-500/10 border-green-500/20'
+              }`}>
+                {needsReview > 0 ? `${needsReview} need${needsReview === 1 ? 's' : ''} review` : 'All images ready'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">
+              {reviewed.map(img => (
+                <button
+                  key={img.id}
+                  onClick={() => {
+                    setSelectedImageId(img.id);
+                    setCurrentTab('editor');
+                  }}
+                  className={`group flex flex-col rounded-xl border overflow-hidden text-left transition-all hover:scale-[1.02] hover:shadow-lg ${
+                    img.hasUnresolved
+                      ? 'border-amber-500/30 bg-amber-500/5 hover:border-amber-500/60'
+                      : 'border-green-500/20 bg-green-500/5 hover:border-green-500/40'
+                  }`}
+                >
+                  {/* Thumbnail */}
+                  <div
+                    className="w-full bg-base border-b border-line overflow-hidden flex items-center justify-center"
+                    style={{ aspectRatio: settings.aspectRatioType === 'custom' ? `${settings.customWidth}/${settings.customHeight}` : settings.aspectRatioType.replace(':', '/') }}
+                  >
+                    <img src={img.processedUrl} alt="" className="w-full h-full object-contain" />
+                  </div>
+
+                  {/* Info */}
+                  <div className="p-2 flex flex-col gap-1.5 flex-1">
+                    <p className="text-[11px] font-medium text-content truncate">{img.name}</p>
+
+                    <div className="flex flex-wrap gap-1">
+                      {img.bgRemoved && (
+                        <span className="flex items-center gap-0.5 text-[9px] font-medium text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded-full">
+                          <Wand2 className="w-2.5 h-2.5" /> BG
+                        </span>
+                      )}
+                      {img.upscaled && (
+                        <span className="flex items-center gap-0.5 text-[9px] font-medium text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded-full">
+                          <ArrowUpNarrowWide className="w-2.5 h-2.5" /> 2×
+                        </span>
+                      )}
+                      {img.unresolvedLowRes && (
+                        <span className="flex items-center gap-0.5 text-[9px] font-medium text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
+                          <AlertTriangle className="w-2.5 h-2.5" /> Low-res
+                        </span>
+                      )}
+                      {img.unresolvedRatio && (
+                        <span className="flex items-center gap-0.5 text-[9px] font-medium text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
+                          <AlertTriangle className="w-2.5 h-2.5" /> Ratio
+                        </span>
+                      )}
+                      {!img.hasUnresolved && !img.bgRemoved && !img.upscaled && (
+                        <span className="flex items-center gap-0.5 text-[9px] font-medium text-green-400 bg-green-500/10 px-1.5 py-0.5 rounded-full">
+                          <Check className="w-2.5 h-2.5" /> Ready
+                        </span>
+                      )}
+                    </div>
+
+                    <span className={`text-[9px] font-semibold mt-auto opacity-0 group-hover:opacity-100 transition-opacity ${
+                      img.hasUnresolved ? 'text-amber-400' : 'text-green-400'
+                    }`}>
+                      {img.hasUnresolved ? 'Click to fix →' : 'Click to review →'}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="mt-auto bg-base p-4 rounded-xl border border-line flex flex-col md:flex-row items-center justify-between gap-4">
         <p className="text-xs text-muted">Adjustments propagate in real-time. Everything is generated client-side.</p>

@@ -7,7 +7,8 @@ interface SampleProps {
   name: string;
   width: number;
   height: number;
-  drawFn: (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
+  /** Pass skipBg=true to skip the background fill (used by getDemoSliderPair). */
+  drawFn: (ctx: CanvasRenderingContext2D, w: number, h: number, skipBg?: boolean) => void;
 }
 
 const SAMPLES: SampleProps[] = [
@@ -15,10 +16,11 @@ const SAMPLES: SampleProps[] = [
     name: 'Yellow_Lounge_Chair.png',
     width: 600,
     height: 400, // Wide
-    drawFn: (ctx, w, h) => {
-      // Clean cream background for sample
-      ctx.fillStyle = '#f5f5f4';
-      ctx.fillRect(0, 0, w, h);
+    drawFn: (ctx, w, h, skipBg = false) => {
+      if (!skipBg) {
+        ctx.fillStyle = '#f5f5f4';
+        ctx.fillRect(0, 0, w, h);
+      }
 
       // Shadow
       ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
@@ -87,10 +89,11 @@ const SAMPLES: SampleProps[] = [
     name: 'Tall_Acoustic_Guitar.png',
     width: 300,
     height: 700, // Very Tall portrait
-    drawFn: (ctx, w, h) => {
-      // Studio gray backdrop
-      ctx.fillStyle = '#f1f5f9';
-      ctx.fillRect(0, 0, w, h);
+    drawFn: (ctx, w, h, skipBg = false) => {
+      if (!skipBg) {
+        ctx.fillStyle = '#f1f5f9';
+        ctx.fillRect(0, 0, w, h);
+      }
 
       // Stand shadow
       ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
@@ -190,10 +193,11 @@ const SAMPLES: SampleProps[] = [
     name: 'Denim_TShirt.png',
     width: 450,
     height: 550, // Standard product fashion
-    drawFn: (ctx, w, h) => {
-      // Soft light-pinkish-beige backdrop
-      ctx.fillStyle = '#fafaf9';
-      ctx.fillRect(0, 0, w, h);
+    drawFn: (ctx, w, h, skipBg = false) => {
+      if (!skipBg) {
+        ctx.fillStyle = '#fafaf9';
+        ctx.fillRect(0, 0, w, h);
+      }
 
       // Drop shadow
       ctx.fillStyle = 'rgba(59, 130, 246, 0.04)';
@@ -265,10 +269,11 @@ const SAMPLES: SampleProps[] = [
     name: 'Explorer_Boots.png',
     width: 650,
     height: 380, // Landscape boot layout
-    drawFn: (ctx, w, h) => {
-      // Warm modern background
-      ctx.fillStyle = '#f5f5f4';
-      ctx.fillRect(0, 0, w, h);
+    drawFn: (ctx, w, h, skipBg = false) => {
+      if (!skipBg) {
+        ctx.fillStyle = '#f5f5f4';
+        ctx.fillRect(0, 0, w, h);
+      }
 
       // Cast Shadow
       ctx.fillStyle = 'rgba(0,0,0,0.06)';
@@ -330,6 +335,25 @@ const SAMPLES: SampleProps[] = [
     }
   }
 ];
+
+/** Returns a { before, after } pair for the hero before/after slider demo */
+export function getDemoSliderPair(): { before: string; after: string } {
+  const s = SAMPLES[0]; // Yellow Lounge Chair
+  const mk = (bgColor: string) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = s.width;
+    canvas.height = s.height;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(0, 0, s.width, s.height);
+    s.drawFn(ctx, s.width, s.height, true); // skipBg — background already set above
+    return canvas.toDataURL('image/png');
+  };
+  return {
+    before: mk('#64748b'), // slate gray — "messy" background
+    after:  mk('#ffffff'), // clean white
+  };
+}
 
 /**
  * Generates all sample data URLs statically on demand
