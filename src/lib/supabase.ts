@@ -67,6 +67,8 @@ export interface Profile {
   id: string;
   email: string;
   plan: Plan;
+  /** Optional display name — requires the `name` column on profiles (see Account settings). */
+  name?: string | null;
 }
 
 // Emails that always have full access regardless of plan.

@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sliders, Grid, Sun, Moon, User, LogOut, Crown, ChevronDown, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Sliders, Grid, Sun, Moon, User, LogOut, Crown, ChevronDown, ArrowLeft, ShieldCheck, Settings } from 'lucide-react';
 import { useEditor } from '../../context/EditorContext';
 import { useTheme } from '../../hooks/useTheme';
 import { useAuth } from '../../context/AuthContext';
+import { AccountModal } from '../account/AccountModal';
 
 interface HeaderProps {
   onBackToLanding: () => void;
@@ -13,6 +14,7 @@ export const Header: React.FC<HeaderProps> = ({ onBackToLanding }) => {
   const { theme, toggle } = useTheme();
   const { user, isAdmin, isPremium, signOut, openAuthModal } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -108,6 +110,12 @@ export const Header: React.FC<HeaderProps> = ({ onBackToLanding }) => {
                     {isAdmin ? 'Admin — full access' : isPremium ? 'Premium plan' : 'Free plan'}
                   </p>
                 </div>
+                <button
+                  onClick={() => { setAccountOpen(true); setDropdownOpen(false); }}
+                  className="w-full flex items-center gap-2 px-4 py-2.5 text-xs text-muted hover:text-content hover:bg-elevated transition-all border-b border-line"
+                >
+                  <Settings className="w-3.5 h-3.5" /> Account settings
+                </button>
                 {isAdmin && (
                   <button
                     onClick={() => { window.location.hash = '#/admin'; setDropdownOpen(false); }}
@@ -134,6 +142,7 @@ export const Header: React.FC<HeaderProps> = ({ onBackToLanding }) => {
           </button>
         )}
       </div>
+      <AccountModal open={accountOpen} onClose={() => setAccountOpen(false)} />
     </header>
   );
 };

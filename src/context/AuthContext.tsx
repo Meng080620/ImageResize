@@ -25,6 +25,8 @@ interface AuthContextType {
   requestPasswordReset: (email: string) => Promise<string | null>;
   /** Forgot-password step 2: verify the recovery code → signs the user in to set a new password. */
   verifyRecoveryOtp: (email: string, token: string) => Promise<string | null>;
+  /** Update the signed-in user's own profile row (e.g. display name). */
+  updateProfile: (fields: { name?: string | null }) => Promise<string | null>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -42,7 +44,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const fetchProfile = useCallback(async (userId: string, email: string) => {
     const { data } = await supabase
       .from('profiles')
-      .select('id, email, plan')
+      .select('*')                 // '*' so an added `name` column is picked up without breaking older schemas
       .eq('id', userId)
       .single();
     if (data) {
@@ -145,6 +147,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await supabase.auth.signOut();
   }, []);
 
+  const updateProfile = useCallback(async (fields: { name?: string | null }): Promise<string | null> => {
+    if (!SUPABASE_CONFIGURED) return NOT_CONFIGURED;
+    const { data: { user: u } } = await supabase.auth.getUser();
+    if (!u) return 'You must be signed in.';
+    const { data, error } = await supabase.from('profiles').update(fields).eq('id', u.id).select('*').single();
+    if (error) return error.message;
+    if (data) setProfile(data as Profile);
+    return null;
+  }, []);
+
   const refreshProfile = useCallback(async () => {
     if (!SUPABASE_CONFIGURED) return;
     const { data: { user: u } } = await supabase.auth.getUser();
@@ -160,7 +172,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       user, profile, plan, isAdmin, isPremium, loading,
       authModalOpen, openAuthModal: () => setAuthModalOpen(true), closeAuthModal: () => setAuthModalOpen(false),
       signIn, requestSignupOtp, verifyOtp, setPassword, resendOtp,
-      requestPasswordReset, verifyRecoveryOtp, signOut, refreshProfile,
+      requestPasswordReset, verifyRecoveryOtp, updateProfile, signOut, refreshProfile,
     }}>
       {children}
     </AuthContext.Provider>
