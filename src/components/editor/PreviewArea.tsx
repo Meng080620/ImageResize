@@ -1,16 +1,19 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { RefreshCw, Download, Maximize2, Image as ImageIcon } from 'lucide-react';
+import { RefreshCw, Download, Maximize2, Image as ImageIcon, Layers } from 'lucide-react';
 import { useEditor } from '../../context/EditorContext';
+import { BeforeAfterSlider } from '../landing/BeforeAfterSlider';
+import { MultiExportModal } from './MultiExportModal';
 
 const fade = { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const };
 
 export const PreviewArea: React.FC = () => {
-  const { 
-    selectedImage, isProcessing, 
+  const {
+    selectedImage, isProcessing,
     viewMode, setViewMode, settings, handleDownloadSingle,
     handleOpenBigPreviewHero, handleLoadSingleTestProduct
   } = useEditor();
+  const [multiExportOpen, setMultiExportOpen] = useState(false);
 
   if (!selectedImage) {
     return (
@@ -43,17 +46,21 @@ export const PreviewArea: React.FC = () => {
         <div className="flex items-center gap-3">
           <button
             onClick={handleOpenBigPreviewHero}
+            aria-label="Expand preview to fullscreen"
             className="px-3 py-1.5 bg-elevated hover:bg-hover text-muted rounded-md text-xs font-medium transition-colors duration-200 flex items-center gap-1.5"
           >
             <Maximize2 className="w-3 h-3" />
             Expand
           </button>
 
-          <div className="flex items-center bg-base p-1 rounded-md border border-line relative">
-            {(['split', 'single'] as const).map((mode) => (
+          <div className="flex items-center bg-base p-1 rounded-md border border-line relative" role="group" aria-label="Preview view mode">
+            {(['split', 'slider', 'single'] as const).map((mode) => (
               <button
                 key={mode}
                 onClick={() => setViewMode(mode)}
+                aria-label={`${mode === 'split' ? 'Split' : mode === 'slider' ? 'Compare before/after' : 'Single'} view`}
+                aria-pressed={viewMode === mode}
+                title={mode === 'slider' ? 'Drag the handle to compare original vs processed' : undefined}
                 className={`relative px-3 py-1 rounded text-xs font-medium transition-colors duration-200 z-10 ${
                   viewMode === mode ? 'text-content' : 'text-faint hover:text-muted'
                 }`}
@@ -65,7 +72,9 @@ export const PreviewArea: React.FC = () => {
                     transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                   />
                 )}
-                <span className="relative">{mode === 'split' ? 'Split' : 'Single'}</span>
+                <span className="relative">
+                  {mode === 'split' ? 'Split' : mode === 'slider' ? 'Compare' : 'Single'}
+                </span>
               </button>
             ))}
           </div>
@@ -97,7 +106,23 @@ export const PreviewArea: React.FC = () => {
               transition={fade}
               className="w-full h-full flex items-center justify-center"
             >
-              {viewMode === 'split' ? (
+              {viewMode === 'slider' ? (
+                <div className="w-full rounded-lg overflow-hidden flex flex-col gap-2">
+                  <p className="text-[10px] text-faint text-center">Drag the handle to compare original vs processed</p>
+                  {/* Explicit height: the slider's images are object-contain with no
+                      intrinsic height, so an h-full chain collapses to 0 (the box only
+                      has min-height, not a definite height). A concrete height fixes it. */}
+                  <div className="h-[380px]">
+                    <BeforeAfterSlider
+                      before={selectedImage.originalUrl}
+                      after={selectedImage.processedUrl}
+                      beforeLabel="Original"
+                      afterLabel="Processed"
+                      afterCheckerboard
+                    />
+                  </div>
+                </div>
+              ) : viewMode === 'split' ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full h-full max-w-[600px]">
                   <div className="flex flex-col h-full bg-surface rounded-lg border border-line overflow-hidden">
                     <div className="p-2 border-b border-line flex items-center justify-between bg-elevated">
@@ -123,7 +148,7 @@ export const PreviewArea: React.FC = () => {
                       >
                         <AnimatePresence mode="wait">
                           <motion.img
-                            key={selectedImage.processedUrl}
+                            key={selectedImage.id}
                             src={selectedImage.processedUrl}
                             alt="Processed"
                             initial={{ opacity: 0 }}
@@ -148,7 +173,7 @@ export const PreviewArea: React.FC = () => {
                   >
                     <AnimatePresence mode="wait">
                       <motion.img
-                        key={selectedImage.processedUrl}
+                        key={selectedImage.id}
                         src={selectedImage.processedUrl}
                         alt="Render"
                         initial={{ opacity: 0 }}
@@ -179,15 +204,27 @@ export const PreviewArea: React.FC = () => {
               <p className="text-xs font-medium text-content max-w-[280px] truncate">{selectedImage.name}</p>
             </motion.div>
           </AnimatePresence>
-          <button
-            onClick={handleDownloadSingle}
-            className="px-4 py-2 bg-track text-content rounded-md text-xs font-medium hover:bg-hover transition-colors duration-200 flex items-center gap-2 border border-line-strong"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Download
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleDownloadSingle}
+              className="px-3 py-2 bg-elevated text-content rounded-md text-xs font-medium hover:bg-hover transition-colors duration-200 flex items-center gap-1.5 border border-line-strong"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download
+            </button>
+            <button
+              onClick={() => setMultiExportOpen(true)}
+              title="Export multiple sizes & formats at once"
+              className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-semibold transition-colors duration-200 flex items-center gap-1.5"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Multi-Export
+            </button>
+          </div>
         </div>
       </div>
+
+      <MultiExportModal open={multiExportOpen} onClose={() => setMultiExportOpen(false)} />
     </section>
   );
 };
