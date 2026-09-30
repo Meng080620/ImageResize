@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { UploadedImage, ResizeSettings } from '../types';
 import {
-  processImageOnCanvas, loadImage, computeTargetDims, downloadDataUrl, effectiveSourceUrl,
+  processImageOnCanvas, loadImage, computeTargetDims, downloadDataUrl, effectiveSourceUrl, uniqueFileName,
 } from '../utils/imageProcessor';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 
@@ -41,10 +41,11 @@ export function useExportState(
   const handleDownloadZipWithSize = useCallback(async (targetSize: number | 'preview') => {
     if (images.length === 0) return;
     setIsZipping(true);
-    const { default: JSZip } = await import('jszip');
-    const zip = new JSZip();
     let failed = 0;
     try {
+      const { default: JSZip } = await import('jszip');
+      const zip = new JSZip();
+      const usedNames = new Set<string>();
       const { width, height } = computeTargetDims(settings, targetSize);
       for (const item of images) {
         let blobUrl: string | null = null;
@@ -52,8 +53,7 @@ export function useExportState(
           const imgElem = await loadImage(effectiveSourceUrl(item));
           blobUrl = await processImageOnCanvas(imgElem, settings, width, height, '', (w) => showToast(w, 'info'), item.id);
           const blob = await (await fetch(blobUrl)).blob();
-          const baseName = item.name.substring(0, item.name.lastIndexOf('.')) || item.name;
-          zip.file(`${baseName}.${settings.exportFormat}`, blob);
+          zip.file(uniqueFileName(item.name, settings.exportFormat, usedNames), blob);
         } catch (e) {
           console.error(`[zip] failed to process "${item.name}":`, e);
           failed++;

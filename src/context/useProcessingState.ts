@@ -43,6 +43,8 @@ export function useProcessingState(
           if (img.cutoutUrl && img.cutoutUrl.startsWith('blob:')) URL.revokeObjectURL(img.cutoutUrl);
           return { ...img, cutoutUrl, bgRemoved: true };
         }));
+      } else if (cutoutUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(cutoutUrl); // result of a cancelled run — nothing owns it
       }
     } finally {
       setBgProcessingIds(prev => { const next = new Set(prev); next.delete(id); return next; });
@@ -69,8 +71,9 @@ export function useProcessingState(
     try {
       const bgSource = target.upscaled && target.upscaledUrl ? target.upscaledUrl : target.originalUrl;
       await computeCutout(id, bgSource);
-      showToast('Background removed.', 'success');
+      if (!bgCancelledRef.current) showToast('Background removed.', 'success');
     } catch (e) {
+      if (bgCancelledRef.current) return; // the cancel handler already told the user
       console.error('[bg-removal]', e);
       showToast('Background removal failed.', 'error');
     }
@@ -114,10 +117,12 @@ export function useProcessingState(
   const [upscaleProcessingIds, setUpscaleProcessingIds] = useState<Set<string>>(new Set());
   const [upscaleProgress, setUpscaleProgress] = useState<number | null>(null);
   const upscaleAbortRef = useRef<(() => void) | null>(null);
+  const upscaleCancelledRef = useRef(false);
 
   const isUpscaling = useCallback((id: string) => upscaleProcessingIds.has(id), [upscaleProcessingIds]);
 
   const handleCancelUpscale = useCallback(() => {
+    upscaleCancelledRef.current = true;
     upscaleAbortRef.current?.();
     upscaleAbortRef.current = null;
     setUpscaleProcessingIds(new Set());
@@ -133,6 +138,10 @@ export function useProcessingState(
         srcUrl, factor, setUpscaleProgress,
         (abort) => { upscaleAbortRef.current = abort; },
       );
+      if (upscaleCancelledRef.current) {
+        URL.revokeObjectURL(upscaledUrl); // finished despite the cancel — discard it
+        return;
+      }
       setImages(prev => prev.map(img => {
         if (img.id !== id) return img;
         if (img.upscaledUrl && img.upscaledUrl.startsWith('blob:')) URL.revokeObjectURL(img.upscaledUrl);
@@ -156,10 +165,12 @@ export function useProcessingState(
     }
 
     showToast('Upscaling — first run downloads the AI model…', 'info');
+    upscaleCancelledRef.current = false;
     try {
       await computeUpscale(id, target.originalUrl, factor);
-      showToast(`Upscaled ${factor}×.`, 'success');
+      if (!upscaleCancelledRef.current) showToast(`Upscaled ${factor}×.`, 'success');
     } catch (e) {
+      if (upscaleCancelledRef.current) return; // aborting rejects the run — not a failure
       console.error('[upscale]', e);
       showToast('Upscale failed.', 'error');
     }

@@ -26,7 +26,7 @@ export function useImageQueue(showToast: (msg: string, type?: 'success' | 'error
       const img = new Image();
       img.onload = () => {
         const newItem: UploadedImage = {
-          id: `uploaded-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          id: `uploaded-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           name: file.name,
           type: file.type,
           size: file.size,
@@ -36,11 +36,9 @@ export function useImageQueue(showToast: (msg: string, type?: 'success' | 'error
           height: img.height,
           aspectRatio: img.width / img.height,
         };
-        setImages(prev => {
-          const next = [...prev, newItem];
-          if (next.length === 1 || !selectedImageId) setSelectedImageId(newItem.id);
-          return next;
-        });
+        setImages(prev => [...prev, newItem]);
+        // Select the first imported image only when nothing is selected yet.
+        setSelectedImageId(cur => cur ?? newItem.id);
         succeeded++;
         onSettled();
       };
@@ -50,7 +48,7 @@ export function useImageQueue(showToast: (msg: string, type?: 'success' | 'error
       };
       img.src = originalUrl;
     });
-  }, [selectedImageId, showToast]);
+  }, [showToast]);
 
   const onDrag = useCallback((e: DragEvent) => {
     e.preventDefault();
@@ -63,27 +61,24 @@ export function useImageQueue(showToast: (msg: string, type?: 'success' | 'error
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFiles(e.dataTransfer.files);
+    if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files);
   }, [handleFiles]);
 
   const handleRemoveImage = useCallback((id: string, e: MouseEvent) => {
     e.stopPropagation();
-    setImages(prev => {
-      const removed = prev.find(img => img.id === id);
-      if (removed) revokeImageUrls(removed);
-      const next = prev.filter(img => img.id !== id);
-      if (selectedImageId === id) setSelectedImageId(next.length > 0 ? next[0].id : null);
-      return next;
-    });
-  }, [selectedImageId]);
+    const removed = images.find(img => img.id === id);
+    if (!removed) return;
+    revokeImageUrls(removed);
+    const next = images.filter(img => img.id !== id);
+    setImages(next);
+    setSelectedImageId(cur => (cur === id ? (next[0]?.id ?? null) : cur));
+  }, [images]);
 
   const handleClearAll = useCallback(() => {
-    setImages(prev => {
-      prev.forEach(img => revokeImageUrls(img));
-      return [];
-    });
+    images.forEach(img => revokeImageUrls(img));
+    setImages([]);
     setSelectedImageId(null);
-  }, []);
+  }, [images]);
 
   const handleLoadSingleTestProduct = useCallback(() => {
     const s = getSampleProducts()[0];
@@ -93,9 +88,10 @@ export function useImageQueue(showToast: (msg: string, type?: 'success' | 'error
       originalUrl: s.url, processedUrl: s.url,
       width: s.width, height: s.height, aspectRatio: s.width / s.height
     };
+    images.forEach(img => revokeImageUrls(img)); // don't leak the blob URLs we're replacing
     setImages([newItem]);
     setSelectedImageId(newItem.id);
-  }, []);
+  }, [images]);
 
   const handleNextImage = useCallback(() => {
     if (images.length <= 1 || !selectedImageId) return;

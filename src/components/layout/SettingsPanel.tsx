@@ -1,11 +1,13 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { Sliders, RotateCcw, Scale, Crop, Sparkles, Wand2, Loader2, Check, ArrowUpNarrowWide, X, Store, Download } from 'lucide-react';
 import { useEditor } from '../../context/EditorContext';
-import { useAuth } from '../../context/AuthContext';
-import { PremiumGate } from '../auth/PremiumGate';
 import { AspectRatioType, BackgroundStyle } from '../../types';
 import type { ResizeSettings } from '../../types';
 import { BG_MODEL_MAP } from '../../utils/imageProcessor';
+import { Switch, SwitchField, SwitchGroup } from '../../catalyst-ui-kit/typescript/switch';
+import { Label } from '../../catalyst-ui-kit/typescript/fieldset';
+import { Button } from '../../catalyst-ui-kit/typescript/button';
+import { Input } from '../../catalyst-ui-kit/typescript/input';
 
 type PresetPatch = Partial<ResizeSettings>;
 
@@ -89,7 +91,6 @@ const PRESETS: { id: string; label: string; hint: string; patch: PresetPatch }[]
 
 export const SettingsPanel: React.FC = () => {
   const { settings, setSettings, handleResetSettings, selectedImage, selectedImageAnalysis, handleRemoveBackground, handleRemoveBackgroundAll, isBgProcessing, bgProgress, bgStage, bgBatch, bgQuality, setBgQuality, handleCancelBgRemoval, handleCancelUpscale, handleUpscale, isUpscaling, upscaleProgress } = useEditor();
-  const { isPremium } = useAuth();
   const bgBusy = selectedImage ? isBgProcessing(selectedImage.id) : false;
   const bgRemoved = !!selectedImage?.bgRemoved;
   const batchRunning = bgBatch !== null;
@@ -132,7 +133,7 @@ export const SettingsPanel: React.FC = () => {
   };
 
   return (
-    <aside className="lg:col-span-3 bg-surface border border-line rounded-xl p-4 flex flex-col shadow-lg gap-5 h-[calc(100vh-100px)] overflow-y-auto sticky top-[80px]">
+    <aside className="order-3 lg:col-span-3 bg-surface border border-line rounded-xl p-4 flex flex-col shadow-lg gap-5 lg:h-[calc(100vh-100px)] lg:overflow-y-auto lg:sticky lg:top-[80px]">
       <div className="flex items-center justify-between pb-3 border-b border-line shrink-0">
         <h2 className="font-semibold text-sm text-content flex items-center gap-2">
           <Sliders className="w-4 h-4 text-blue-500" /> Settings
@@ -182,18 +183,18 @@ export const SettingsPanel: React.FC = () => {
           <div className="grid grid-cols-2 gap-2 mt-1">
             <div>
               <span className="text-[10px] text-faint uppercase tracking-wider mb-1 block">Width</span>
-              <input 
+              <Input
                 type="number" value={settings.customWidth}
                 onChange={(e) => setSettings(p => ({ ...p, customWidth: Math.max(10, Number(e.target.value)) }))}
-                className="w-full bg-base border border-line-strong rounded px-2 py-1 text-xs text-content outline-none focus:border-blue-500"
+                className="[&_input]:!py-1 [&_input]:!px-2 [&_input]:!text-xs [&_input]:!leading-5"
               />
             </div>
             <div>
               <span className="text-[10px] text-faint uppercase tracking-wider mb-1 block">Height</span>
-              <input 
+              <Input
                 type="number" value={settings.customHeight}
                 onChange={(e) => setSettings(p => ({ ...p, customHeight: Math.max(10, Number(e.target.value)) }))}
-                className="w-full bg-base border border-line-strong rounded px-2 py-1 text-xs text-content outline-none focus:border-blue-500"
+                className="[&_input]:!py-1 [&_input]:!px-2 [&_input]:!text-xs [&_input]:!leading-5"
               />
             </div>
           </div>
@@ -237,32 +238,31 @@ export const SettingsPanel: React.FC = () => {
         />
       </div>
 
-      <div className="flex flex-col gap-2 shrink-0 border-t border-line pt-4">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold text-muted">Trim Margins</label>
-          <input 
-            type="checkbox" checked={settings.trimProductMargins}
-            onChange={(e) => setSettings(p => ({ ...p, trimProductMargins: e.target.checked }))}
-            className="w-3.5 h-3.5 rounded bg-track accent-blue-500 border-line-strong"
+      <SwitchGroup className="shrink-0 border-t border-line pt-4 !space-y-3">
+        <SwitchField>
+          <Label className="!text-xs !font-semibold !text-muted">Trim Margins</Label>
+          <Switch
+            name="trim" color="blue" checked={settings.trimProductMargins}
+            onChange={(v: boolean) => setSettings(p => ({ ...p, trimProductMargins: v }))}
           />
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <label className="text-xs font-semibold text-muted">Auto-Center <span className="text-[10px] text-blue-400 font-mono bg-blue-500/10 px-1 py-0.5 rounded ml-1">AI</span></label>
-          <input 
-            type="checkbox" checked={settings.autoCenter}
-            onChange={(e) => setSettings(p => ({ ...p, autoCenter: e.target.checked }))}
-            className="w-3.5 h-3.5 rounded bg-track accent-blue-500 border-line-strong"
+        </SwitchField>
+        <SwitchField>
+          <Label className="!text-xs !font-semibold !text-muted">
+            Auto-Center <span className="ml-1 rounded bg-blue-500/10 px-1 py-0.5 font-mono text-[10px] text-blue-400">AI</span>
+          </Label>
+          <Switch
+            name="auto-center" color="blue" checked={settings.autoCenter}
+            onChange={(v: boolean) => setSettings(p => ({ ...p, autoCenter: v }))}
           />
-        </div>
-        <div className="flex items-center justify-between mt-2">
-          <label className="text-xs font-semibold text-muted">Upscale Small</label>
-          <input 
-            type="checkbox" checked={settings.upscaleSmallImages}
-            onChange={(e) => setSettings(p => ({ ...p, upscaleSmallImages: e.target.checked }))}
-            className="w-3.5 h-3.5 rounded bg-track accent-blue-500 border-line-strong"
+        </SwitchField>
+        <SwitchField>
+          <Label className="!text-xs !font-semibold !text-muted">Upscale Small</Label>
+          <Switch
+            name="upscale-small" color="blue" checked={settings.upscaleSmallImages}
+            onChange={(v: boolean) => setSettings(p => ({ ...p, upscaleSmallImages: v }))}
           />
-        </div>
-      </div>
+        </SwitchField>
+      </SwitchGroup>
 
       <div className="flex flex-col gap-3 shrink-0 border-t border-line pt-4">
         <div className="flex items-center justify-between">
@@ -325,25 +325,22 @@ export const SettingsPanel: React.FC = () => {
           </div>
         </div>
 
-        {isPremium ? (
+        {(
           <>
-            <button
+            <Button
+              color={upscaled ? ('green' as const) : ('blue' as const)}
               onClick={() => selectedImage && handleUpscale(selectedImage.id, upscaleFactor)}
               disabled={!selectedImage || upscaleBusy}
-              className={`flex items-center justify-center gap-2 py-2 rounded-md text-xs font-medium border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                upscaled
-                  ? 'bg-green-500/15 text-green-400 border-green-500/40 hover:bg-green-500/25'
-                  : 'bg-blue-500/15 text-blue-400 border-blue-500/40 hover:bg-blue-500/25'
-              }`}
+              className="w-full !text-xs !items-center"
             >
               {upscaleBusy ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {upscaleLabel}</>
+                <><Loader2 data-slot="icon" className="animate-spin" /> {upscaleLabel}</>
               ) : upscaled ? (
-                <><Check className="w-3.5 h-3.5" /> Upscaled · Restore</>
+                <><Check data-slot="icon" /> Upscaled · Restore</>
               ) : (
-                <><ArrowUpNarrowWide className="w-3.5 h-3.5" /> Upscale {upscaleFactor}× <span className="text-[9px] uppercase font-mono bg-blue-500/20 px-1 py-0.5 rounded">AI</span></>
+                <><ArrowUpNarrowWide data-slot="icon" /> Upscale {upscaleFactor}× <span className="rounded bg-white/25 px-1 py-px font-mono text-[9px] uppercase">AI</span></>
               )}
-            </button>
+            </Button>
             {upscaleBusy && (
               <div className="flex items-center gap-2">
                 <div className="flex-1 h-1 rounded-full bg-track overflow-hidden">
@@ -357,8 +354,6 @@ export const SettingsPanel: React.FC = () => {
               </div>
             )}
           </>
-        ) : (
-          <PremiumGate label="AI Upscale" inline={false} />
         )}
 
         {isLowRes && !upscaled && !upscaleBusy && (
@@ -371,7 +366,7 @@ export const SettingsPanel: React.FC = () => {
       <div className="flex flex-col gap-3 shrink-0 border-t border-line pt-4">
         <label className="text-xs font-semibold text-muted">Background</label>
 
-        {isPremium ? (
+        {(
           <>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-faint">Model quality</span>
@@ -406,53 +401,45 @@ export const SettingsPanel: React.FC = () => {
 
             {/* Single BG removal — shows cancel inline when busy */}
             <div className="flex gap-2">
-              <button
+              <Button
+                color={bgRemoved ? ('green' as const) : ('blue' as const)}
                 onClick={() => selectedImage && handleRemoveBackground(selectedImage.id)}
                 disabled={!selectedImage || bgBusy || batchRunning}
-                className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-xs font-medium border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                  bgRemoved
-                    ? 'bg-green-500/15 text-green-400 border-green-500/40 hover:bg-green-500/25'
-                    : 'bg-blue-500/15 text-blue-400 border-blue-500/40 hover:bg-blue-500/25'
-                }`}
+                className="flex-1 !text-xs !items-center"
               >
                 {bgBusy ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin" /> {progressLabel}</>
+                  <><Loader2 data-slot="icon" className="animate-spin" /> {progressLabel}</>
                 ) : bgRemoved ? (
-                  <><Check className="w-3.5 h-3.5" /> Removed · Restore</>
+                  <><Check data-slot="icon" /> Removed · Restore</>
                 ) : (
-                  <><Wand2 className="w-3.5 h-3.5" /> Remove BG <span className="text-[9px] uppercase font-mono bg-blue-500/20 px-1 py-0.5 rounded">AI</span></>
+                  <><Wand2 data-slot="icon" /> Remove BG <span className="rounded bg-white/25 px-1 py-px font-mono text-[9px] uppercase">AI</span></>
                 )}
-              </button>
+              </Button>
               {bgBusy && (
-                <button
-                  onClick={handleCancelBgRemoval}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all shrink-0"
-                >
-                  <X className="w-3 h-3" /> Cancel
-                </button>
+                <Button color="red" onClick={handleCancelBgRemoval}>
+                  <X data-slot="icon" /> Cancel
+                </Button>
               )}
             </div>
 
             {/* Batch BG removal — shows cancel inline when running */}
             <div className="flex gap-2">
-              <button
+              <Button
+                outline
                 onClick={handleRemoveBackgroundAll}
                 disabled={batchRunning || bgBusy}
-                className="flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-[11px] font-medium border border-line-strong bg-elevated/50 text-muted hover:bg-elevated transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 !text-xs !items-center"
               >
                 {batchRunning ? (
-                  <><Loader2 className="w-3 h-3 animate-spin" /> Removing all · {bgBatch!.done}/{bgBatch!.total} {bgProgress !== null ? `· ${bgProgress}%` : ''}</>
+                  <><Loader2 data-slot="icon" className="animate-spin" /> Removing all · {bgBatch!.done}/{bgBatch!.total} {bgProgress !== null ? `· ${bgProgress}%` : ''}</>
                 ) : (
-                  <><Wand2 className="w-3 h-3" /> Remove Background — All</>
+                  <><Wand2 data-slot="icon" /> Remove Background — All</>
                 )}
-              </button>
+              </Button>
               {batchRunning && (
-                <button
-                  onClick={handleCancelBgRemoval}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all shrink-0"
-                >
-                  <X className="w-3 h-3" /> Cancel
-                </button>
+                <Button color="red" onClick={handleCancelBgRemoval}>
+                  <X data-slot="icon" /> Cancel
+                </Button>
               )}
             </div>
 
@@ -465,8 +452,6 @@ export const SettingsPanel: React.FC = () => {
               </div>
             )}
           </>
-        ) : (
-          <PremiumGate label="AI Background Removal" inline={false} />
         )}
 
         {bgRemoved && settings.bgStyle === 'transparent' && settings.exportFormat === 'jpeg' && (
@@ -501,10 +486,10 @@ export const SettingsPanel: React.FC = () => {
               onChange={(e) => setSettings(p => ({ ...p, backgroundColor: e.target.value }))}
               className="w-6 h-6 rounded cursor-pointer bg-transparent border-0"
             />
-            <input 
-              type="text" value={settings.backgroundColor}
+            <Input
+              type="text" value={settings.backgroundColor} aria-label="Background colour hex"
               onChange={(e) => setSettings(p => ({ ...p, backgroundColor: e.target.value }))}
-              className="flex-1 bg-transparent px-2 text-xs text-content outline-none font-mono"
+              className="flex-1 font-mono [&_input]:!py-1 [&_input]:!px-2 [&_input]:!text-xs [&_input]:!leading-5"
             />
           </div>
         )}

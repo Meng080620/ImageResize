@@ -1,11 +1,10 @@
 import React, { useRef, useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Upload, Trash2, Image as ImageIcon, FileArchive, RefreshCw, GripVertical, AlertTriangle, X, Lightbulb, Plus, Layers } from 'lucide-react';
+import { Trash2, Image as ImageIcon, FileArchive, RefreshCw, GripVertical, AlertTriangle, X, Lightbulb, Plus, Layers } from 'lucide-react';
 import { useEditor } from '../../context/EditorContext';
-import { useAuth } from '../../context/AuthContext';
-import { PremiumGate } from '../auth/PremiumGate';
-import { getSampleProducts } from '../../utils/sampleImages';
 import { MultiExportModal } from '../editor/MultiExportModal';
+import { Button } from '../../catalyst-ui-kit/typescript/button';
+import { Input } from '../../catalyst-ui-kit/typescript/input';
 
 const spring = { type: 'spring' as const, stiffness: 500, damping: 35, mass: 0.8 };
 
@@ -19,7 +18,6 @@ export const Sidebar: React.FC = () => {
     handleRemoveBackground, handleUpscale, isBgProcessing, isUpscaling,
   } = useEditor();
 
-  const { isPremium } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [overIndex, setOverIndex] = useState<number | null>(null);
@@ -66,18 +64,6 @@ export const Sidebar: React.FC = () => {
     return items;
   }, [imagesAnalysis, dragIndex, overIndex]);
 
-  const loadSamples = () => {
-    const samples = getSampleProducts();
-    const newItems = samples.map((s, idx) => ({
-      id: `sample-${idx}`,
-      name: s.name, type: 'image/png', size: 15420,
-      originalUrl: s.url, processedUrl: s.url,
-      width: s.width, height: s.height, aspectRatio: s.width / s.height
-    }));
-    setImages(newItems);
-    setSelectedImageId(newItems[0].id);
-  };
-
   const handleDragEnd = () => {
     if (dragIndex !== null && overIndex !== null && dragIndex !== overIndex) {
       moveImage(dragIndex, overIndex);
@@ -87,7 +73,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="lg:col-span-3 bg-surface border border-line rounded-xl p-4 flex flex-col shadow-lg h-[calc(100vh-100px)] sticky top-[80px]">
+    <aside className="order-2 lg:order-1 lg:col-span-3 bg-surface border border-line rounded-xl p-4 flex flex-col shadow-lg lg:h-[calc(100vh-100px)] lg:sticky lg:top-[80px]">
       <div className="flex items-center justify-between pb-3 border-b border-line mb-3">
         <div className="flex items-center gap-2">
           <ImageIcon className="w-4 h-4 text-muted" />
@@ -109,36 +95,17 @@ export const Sidebar: React.FC = () => {
         multiple accept="image/*" className="hidden"
       />
 
-      {images.length === 0 ? (
-        <motion.div
-          onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}
-          onClick={() => fileInputRef.current?.click()}
-          animate={{
-            borderColor: dragActive ? 'rgba(59,130,246,0.6)' : 'rgba(255,255,255,0.1)',
-            backgroundColor: dragActive ? 'rgba(59,130,246,0.08)' : 'rgba(39,39,42,0)',
-            scale: dragActive ? 1.01 : 1,
-          }}
-          transition={{ duration: 0.2 }}
-          className="border border-dashed rounded-xl p-6 text-center cursor-pointer mb-4 shrink-0 hover:border-line-strong hover:bg-elevated/50"
-        >
-          <Upload className="w-5 h-5 text-muted mx-auto mb-2" />
-          <p className="text-xs font-medium text-muted">Drag & drop or click to upload</p>
-          <p className="text-[10px] text-faint mt-1">JPG, PNG, WEBP — multiple files supported</p>
-        </motion.div>
-      ) : (
-        <motion.button
-          onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}
-          onClick={() => fileInputRef.current?.click()}
-          animate={{
-            borderColor: dragActive ? 'rgba(59,130,246,0.6)' : 'transparent',
-            backgroundColor: dragActive ? 'rgba(59,130,246,0.08)' : 'rgba(39,39,42,0)',
-          }}
-          transition={{ duration: 0.15 }}
-          className="w-full mb-3 shrink-0 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-line text-faint hover:text-muted hover:border-line-strong hover:bg-elevated/40 transition-colors text-xs font-medium"
-        >
-          <Plus className="w-3.5 h-3.5" /> Add More Images
-        </motion.button>
-      )}
+      <motion.button
+        onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}
+        onClick={() => fileInputRef.current?.click()}
+        className={`w-full mb-3 shrink-0 flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed transition-colors text-xs font-medium ${
+          dragActive
+            ? 'border-blue-500/60 bg-blue-500/10 text-blue-400'
+            : 'border-line text-faint hover:text-muted hover:border-line-strong hover:bg-elevated/40'
+        }`}
+      >
+        <Plus className="w-3.5 h-3.5" /> {images.length === 0 ? 'Add Images' : 'Add More Images'}
+      </motion.button>
 
       <AnimatePresence mode="popLayout">
         {images.length > 0 && (
@@ -282,7 +249,7 @@ export const Sidebar: React.FC = () => {
         )}
       </AnimatePresence>
 
-      <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-2 min-h-0 scroll-smooth">
+      <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-2 min-h-0 max-h-80 lg:max-h-none scroll-smooth">
         {images.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
@@ -290,15 +257,9 @@ export const Sidebar: React.FC = () => {
             transition={{ duration: 0.3 }}
             className="flex flex-col items-center justify-center py-10 text-center h-full"
           >
-            <p className="text-xs text-faint mt-2 max-w-[200px] leading-relaxed">
-              Upload your product images to get started.
+            <p className="text-xs text-faint max-w-[200px] leading-relaxed">
+              Your images will appear here.
             </p>
-            <button 
-              onClick={loadSamples}
-              className="mt-4 px-4 py-2 bg-elevated hover:bg-hover text-content font-medium text-xs rounded-md transition-colors duration-200"
-            >
-              Load Samples
-            </button>
           </motion.div>
         ) : (
           <AnimatePresence initial={false}>
@@ -407,7 +368,7 @@ export const Sidebar: React.FC = () => {
                     transition={{ duration: 0.2 }}
                     className="flex flex-col gap-1 mt-1 overflow-hidden"
                   >
-                    <input
+                    <Input
                       type="number" value={customExportSizeInput} min={1} max={10000}
                       onChange={(e) => {
                         const raw = Number(e.target.value);
@@ -419,7 +380,7 @@ export const Sidebar: React.FC = () => {
                         if (!raw || raw < 1) setCustomExportSizeInput(1);
                         else if (raw > 10000) setCustomExportSizeInput(10000);
                       }}
-                      className="w-full bg-surface border border-line-strong rounded px-2 py-1 text-xs text-content outline-none focus:border-blue-500 transition-colors duration-200"
+                      className="[&_input]:!py-1 [&_input]:!px-2 [&_input]:!text-xs [&_input]:!leading-5"
                       aria-label="Custom export size in pixels (1–10000)"
                     />
                     {(customExportSizeInput < 1 || customExportSizeInput > 10000) && (
@@ -430,31 +391,27 @@ export const Sidebar: React.FC = () => {
               </AnimatePresence>
             </div>
 
-            {isPremium ? (
+            {(
               <div className="flex flex-col gap-1.5">
-                <button
+                <Button
+                  color="blue"
                   onClick={() => handleDownloadZipWithSize(activeExportSize)}
                   disabled={isZipping || isProcessing}
-                  className={`py-2 px-4 bg-blue-600 hover:bg-blue-500 text-white font-medium rounded-lg text-xs shadow-md transition-all duration-200 flex items-center justify-center gap-2 ${
-                    isZipping || isProcessing ? 'opacity-70 cursor-not-allowed' : ''
-                  }`}
+                  className="w-full !text-xs !items-center"
                 >
-                  {isZipping || isProcessing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <FileArchive className="w-3.5 h-3.5" />}
+                  {isZipping || isProcessing ? <RefreshCw data-slot="icon" className="animate-spin" /> : <FileArchive data-slot="icon" />}
                   {isZipping ? 'Packaging...' : isProcessing ? 'Processing...' : `Export ZIP (${activeExportSize === 'preview' ? 'Canvas' : `${activeExportSize}px`})`}
-                </button>
-                <button
+                </Button>
+                <Button
+                  color="purple"
                   onClick={() => setBatchExportOpen(true)}
                   disabled={isZipping || isProcessing || images.length === 0}
-                  className={`py-2 px-4 bg-purple-600 hover:bg-purple-500 text-white font-medium rounded-lg text-xs shadow-md transition-all duration-200 flex items-center justify-center gap-2 ${
-                    isZipping || isProcessing || images.length === 0 ? 'opacity-70 cursor-not-allowed' : ''
-                  }`}
+                  className="w-full !text-xs !items-center"
                 >
-                  <Layers className="w-3.5 h-3.5" />
+                  <Layers data-slot="icon" />
                   Multi-Size Batch Export
-                </button>
+                </Button>
               </div>
-            ) : (
-              <PremiumGate label="Batch ZIP Export" inline={false} />
             )}
           </motion.div>
           <MultiExportModal

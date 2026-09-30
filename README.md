@@ -12,14 +12,13 @@ third party.
   **rembg / BiRefNet** (best, local) → **ISNet** (in-browser fallback) → edge detection.
 - **AI upscale** 2× / 4× via ESRGAN (UpscalerJS + TF.js) — rescues low-res photos.
 - **Batch export** to ZIP, plus a multi-size / multi-format export modal (PNG / JPEG / WEBP).
-- **Accounts & premium gating** via Supabase; AI features are premium.
+- **No accounts, no paywall** — every feature is available to everyone.
 - **100% local processing** — ISNet/ESRGAN run in the browser via WebGPU/WASM; rembg runs
   on your own machine. Images never touch a third-party server.
 
 ## Tech stack
 
-React 19 · TypeScript · Vite · Tailwind · Supabase (auth) · Stripe (payments) ·
-`@imgly/background-removal` (ISNet ONNX) · UpscalerJS/TF.js (ESRGAN) · rembg/BiRefNet (optional).
+React 19 · TypeScript · Vite · Tailwind · `@imgly/background-removal` (ISNet ONNX) · UpscalerJS/TF.js (ESRGAN) · rembg/BiRefNet (optional).
 
 ## Getting started
 
@@ -28,20 +27,16 @@ React 19 · TypeScript · Vite · Tailwind · Supabase (auth) · Stripe (payment
 ```bash
 npm install
 cp .env.example .env      # then fill in the values below
-npm run dev               # → http://localhost:3000/#/app
+npm run dev               # → http://localhost:3000/#/app  (the only screen)
 ```
 
 ### Environment (`.env`)
 
 | Var | Required | Purpose |
 |---|---|---|
-| `VITE_SUPABASE_URL` | for auth | Supabase project URL |
-| `VITE_SUPABASE_ANON_KEY` | for auth | Supabase anon key |
 | `REMBG_TARGET` | optional | where the dev proxy forwards `/rembg` (default `http://127.0.0.1:7000`) |
 | `VITE_REMBG_URL` | optional | override the in-app rembg base (default same-origin `/rembg`) |
 
-Without Supabase configured the app still runs, but login is disabled. Premium access is
-granted to emails in `ADMIN_EMAILS` (`src/lib/supabase.ts`) — see [Known gaps](#known-gaps).
 
 ## Background removal
 
@@ -81,23 +76,22 @@ npm run test      # vitest
 
 ```
 src/
-  Root.tsx                 route shell: landing → app → admin (hash routing)
+  Root.tsx                 app shell (single screen at /#/app)
   context/
     EditorContext.tsx      thin composition layer, exposes useEditor()
     useUIState.ts          viewMode, toast, zoom, grid, drag
     useProcessingState.ts  bg removal + AI upscale
     useExportState.ts      ZIP / single download, export sizing
-    AuthContext.tsx        Supabase session + premium gating
   hooks/
     useImageProcessor.ts   debounced preview pipeline over a worker pool
   utils/
     imageProcessor.ts      resize, bg-removal cascade, upscale, worker pool
   workers/imageWorker.ts   off-main-thread canvas renders (cached)
-  components/              editor/ · layout/ · landing/ · auth/ · admin/
+  components/              editor/ · layout/ · sandbox/
 deploy/                    Docker + Caddy config to self-host rembg + the SPA
 ```
 
-State: server state in Supabase; processing/UI state in the context hooks above; blob URLs
+State: processing/UI state lives in the context hooks above; blob URLs
 owned by `revokeImageUrls()` on remove/clear.
 
 ## Testing
@@ -118,8 +112,5 @@ See [`deploy/README.md`](deploy/README.md).
 
 ## Known gaps
 
-- **Stripe webhook is not implemented** — `startCheckout()` works, but nothing upgrades
-  `profiles.plan` after payment, so only `ADMIN_EMAILS` currently get premium. See the TODO
-  in `src/lib/stripe.ts`.
 - rembg only auto-works in `dev`/`preview` (the proxy runs there). A static prod deploy needs
   the `deploy/` Caddy route (or `VITE_REMBG_URL`) to reach a hosted rembg.

@@ -77,7 +77,7 @@ export const SandboxView: React.FC = () => {
                     />
                   </div>
                   <div className="mt-2 text-left">
-                    <p className="text-xs font-medium text-muted line-clamp-1">{img.name}</p>
+                    <p className="text-xs font-medium text-muted truncate" title={img.name}>{img.name}</p>
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-[10px] text-faint">Raw size</span>
                       <span className="text-[10px] text-muted">$124</span>
@@ -110,7 +110,7 @@ export const SandboxView: React.FC = () => {
                     <img src={img.processedUrl} alt="" className="w-full h-full object-contain block" />
                   </div>
                   <div className="mt-2 text-left">
-                    <p className="text-xs font-medium text-muted line-clamp-1">{img.name}</p>
+                    <p className="text-xs font-medium text-muted truncate" title={img.name}>{img.name}</p>
                     <div className="flex items-center justify-between mt-1">
                       <span className="text-[10px] text-faint">Uniform</span>
                       <span className="text-[10px] text-muted">$124</span>

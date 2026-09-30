@@ -1,5 +1,19 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 @import "tailwindcss";
+/* Catalyst UI kit (Tailwind Plus). Don't scan the whole vendored folder (~4x CSS); list only the
+   components the app imports so their classes are generated. Add a line when you import another. */
+@source not "./catalyst-ui-kit";
+@source "./catalyst-ui-kit/typescript/navbar.tsx";
+@source "./catalyst-ui-kit/typescript/dialog.tsx";
+@source "./catalyst-ui-kit/typescript/link.tsx";
+@source "./catalyst-ui-kit/typescript/text.tsx";
+@source "./catalyst-ui-kit/typescript/switch.tsx";
+@source "./catalyst-ui-kit/typescript/fieldset.tsx";
+@source "./catalyst-ui-kit/typescript/button.tsx";
+@source "./catalyst-ui-kit/typescript/input.tsx";
+@source "./catalyst-ui-kit/typescript/select.tsx";
+
+/* The app toggles a `.dark` class on <html> (see useTheme); make Tailwind's `dark:` follow it. */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -52,6 +66,14 @@
   --c-line-strong: rgba(0, 0, 0, 0.14);
   --c-checker: #dcdce0; /* transparency-preview tile, light */
 }
+
+/* Accent text was tuned for the dark theme; darken it on light surfaces so it meets contrast. */
+.light .text-blue-400, .light .text-blue-300 { color: #1d4ed8; }
+.light .text-blue-500 { color: #2563eb; }
+.light .text-red-400, .light .text-red-300, .light .text-red-400\/80 { color: #dc2626; }
+.light .text-green-400, .light .text-green-500 { color: #15803d; }
+.light .text-amber-400, .light .text-amber-500\/80 { color: #b45309; }
+.light .text-purple-400, .light .text-purple-300 { color: #7e22ce; }
 
 body {
   background-color: var(--c-base);

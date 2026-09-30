@@ -1,3 +1,4 @@
+import type { UploadedImage } from '../types';
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
@@ -7,7 +8,7 @@ interface SampleProps {
   name: string;
   width: number;
   height: number;
-  /** Pass skipBg=true to skip the background fill (used by getDemoSliderPair). */
+  /** Pass skipBg=true to skip the background fill (draw the product only). */
   drawFn: (ctx: CanvasRenderingContext2D, w: number, h: number, skipBg?: boolean) => void;
 }
 
@@ -336,25 +337,6 @@ const SAMPLES: SampleProps[] = [
   }
 ];
 
-/** Returns a { before, after } pair for the hero before/after slider demo */
-export function getDemoSliderPair(): { before: string; after: string } {
-  const s = SAMPLES[0]; // Yellow Lounge Chair
-  const mk = (bgColor: string) => {
-    const canvas = document.createElement('canvas');
-    canvas.width = s.width;
-    canvas.height = s.height;
-    const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, s.width, s.height);
-    s.drawFn(ctx, s.width, s.height, true); // skipBg — background already set above
-    return canvas.toDataURL('image/png');
-  };
-  return {
-    before: mk('#64748b'), // slate gray — "messy" background
-    after:  mk('#ffffff'), // clean white
-  };
-}
-
 /**
  * Generates all sample data URLs statically on demand
  */
@@ -374,4 +356,14 @@ export function getSampleProducts(): { name: string; url: string; width: number;
       url: canvas.toDataURL('image/png')
     };
   });
+}
+
+/** Sample products as ready-to-queue images (used by the queue and the empty-state dropzone). */
+export function getSampleImages(): UploadedImage[] {
+  return getSampleProducts().map((s, idx) => ({
+    id: `sample-${idx}`,
+    name: s.name, type: 'image/png', size: 15420,
+    originalUrl: s.url, processedUrl: s.url,
+    width: s.width, height: s.height, aspectRatio: s.width / s.height,
+  }));
 }

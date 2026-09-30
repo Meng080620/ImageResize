@@ -5,7 +5,8 @@ import {
   revokeProcessedUrl, effectiveSourceUrl, cancelProcessingBatch,
 } from '../utils/imageProcessor';
 
-const DEBOUNCE_MS = 300;
+// Short: superseded batches are cancelled in the worker pool, and a render is ~30ms.
+const DEBOUNCE_MS = 120;
 const OVERLAY_DELAY_MS = 200;
 
 async function processOne(
@@ -65,7 +66,7 @@ export function useImageProcessor(
     const imageSnapshot = images.slice();
 
     async function updateAllProcessed() {
-      if (imageSnapshot.length === 0) return;
+      if (imageSnapshot.length === 0) { hideOverlay(); return; }
       showOverlayLater();
 
       const selected = selectedImageId
@@ -78,11 +79,12 @@ export function useImageProcessor(
           const { result, blobUrl } = await processOne(selected, settings, batchId);
           if (blobUrl) ownedUrls.add(blobUrl);
           if (!active) return;
-          ownedUrls.delete(blobUrl ?? ''); // committed — no longer need to revoke
+          if (blobUrl) ownedUrls.delete(blobUrl); // committed — no longer need to revoke
           setImages(prev => prev.map(img => {
             if (img.id !== selected.id) return img;
             revokeProcessedUrl(img.processedUrl, img.originalUrl, result.processedUrl);
-            return result;
+            // Only take the new preview; `result` is a stale snapshot of the rest of the image.
+            return { ...img, processedUrl: result.processedUrl };
           }));
         } catch (e) {
           if (!active) return; // batch_cancelled — cleanup will handle URL revoke
@@ -95,25 +97,23 @@ export function useImageProcessor(
         const settled = await Promise.allSettled(
           rest.map(img => processOne(img, settings, batchId))
         );
-        if (!active) return;
-
         const results = new Map<string, UploadedImage>();
         settled.forEach((s, i) => {
           if (s.status === 'fulfilled') {
             const { result, blobUrl } = s.value;
-            if (blobUrl) ownedUrls.add(blobUrl);
-            ownedUrls.delete(blobUrl ?? ''); // committed
+            if (blobUrl) ownedUrls.add(blobUrl); // revoked by cleanup if we're cancelled below
             results.set(rest[i].id, result);
           }
         });
 
         if (!active) return;
+        ownedUrls.clear(); // committed to state below — now owned by the images
 
         setImages(prev => prev.map(img => {
           const next = results.get(img.id);
-          if (!next || next === img) return img;
+          if (!next || next.processedUrl === img.processedUrl) return img;
           revokeProcessedUrl(img.processedUrl, img.originalUrl, next.processedUrl);
-          return next;
+          return { ...img, processedUrl: next.processedUrl };
         }));
       }
 

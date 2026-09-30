@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Tailwind Plus Catalyst kit: only typescript/ components are used; skip the bundled demo apps and JS copy
+src/catalyst-ui-kit/demo/
+src/catalyst-ui-kit/javascript/

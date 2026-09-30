@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { computeTargetDims, shouldRevokeProcessedUrl, effectiveSourceUrl, revokeImageUrls, downloadDataUrl, compositeOriginalRgbWithMaskAlpha, maskOpaqueFraction, solidifyInteriorAlpha } from './imageProcessor';
+import { computeTargetDims, shouldRevokeProcessedUrl, effectiveSourceUrl, revokeImageUrls, downloadDataUrl, compositeOriginalRgbWithMaskAlpha, maskOpaqueFraction, solidifyInteriorAlpha, uniqueFileName } from './imageProcessor';
 import type { ResizeSettings, UploadedImage } from '../types';
 
 type Dims = Pick<ResizeSettings, 'aspectRatioType' | 'customWidth' | 'customHeight'>;
@@ -306,5 +306,26 @@ describe('bug #6 — email validation', () => {
     expect(EMAIL_RE.test('@nodomain')).toBe(false);
     expect(EMAIL_RE.test('missing@')).toBe(false);
     expect(EMAIL_RE.test('space in@email.com')).toBe(false);
+  });
+});
+
+describe('uniqueFileName', () => {
+  it('swaps the extension and keeps a lone name as-is', () => {
+    expect(uniqueFileName('shoe.png', 'jpeg', new Set())).toBe('shoe.jpeg');
+    expect(uniqueFileName('shoe', 'webp', new Set())).toBe('shoe.webp');
+  });
+  it('numbers duplicates instead of overwriting them', () => {
+    const used = new Set<string>();
+    expect(uniqueFileName('a.png', 'jpeg', used)).toBe('a.jpeg');
+    expect(uniqueFileName('a.jpg', 'jpeg', used)).toBe('a (2).jpeg');
+    expect(uniqueFileName('a.webp', 'jpeg', used)).toBe('a (3).jpeg');
+  });
+  it('is case-insensitive', () => {
+    const used = new Set<string>();
+    uniqueFileName('A.png', 'jpeg', used);
+    expect(uniqueFileName('a.png', 'jpeg', used)).toBe('a (2).jpeg');
+  });
+  it('only strips the final extension', () => {
+    expect(uniqueFileName('my.photo.v2.png', 'png', new Set())).toBe('my.photo.v2.png');
   });
 });

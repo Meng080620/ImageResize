@@ -62,11 +62,3 @@ export interface ImageAnalysis extends UploadedImage {
   hasIssue: boolean;
   isDone: boolean;
 }
-
-export const ASPECT_RATIOS = {
-  '1:1': { label: 'Square (1:1)', ratio: 1, desc: 'WooCommerce, Shopify standard' },
-  '4:3': { label: 'Standard (4:3)', ratio: 4 / 3, desc: 'Digital products, listings' },
-  '3:4': { label: 'Portrait (3:4)', ratio: 3 / 4, desc: 'Fashion, clothes, apparel' },
-  '16:9': { label: 'Landscape (16:9)', ratio: 16 / 9, desc: 'Banners, hero cards' },
-  'custom': { label: 'Custom Dimension', ratio: 1, desc: 'Enter custom pixels' },
-};

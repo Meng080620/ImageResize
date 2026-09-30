@@ -102,6 +102,8 @@ class ImageWorkerPool {
 
   /** Drain the queue, reject all pending jobs, and terminate every worker. */
   teardown() {
+    // In-flight jobs too: their worker is about to be terminated and would never reply.
+    this.busyWith.forEach(j => j.reject(new Error('worker_pool_teardown')));
     this.queue.forEach(j => j.reject(new Error('worker_pool_teardown')));
     this.queue = [];
     this.workers.forEach(w => w.terminate());
@@ -278,7 +280,7 @@ async function removeBackgroundViaRembg(
     body: form,
   });
 
-  if (!res.ok) throw new Error(`rembg error ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(`rembg error ${res.status}`), { status: res.status });
   onProgress?.(90, 'process');
 
   const resultBlob = await res.blob();
@@ -1009,7 +1011,10 @@ export async function removeImageBackground(
       return await removeBackgroundViaRembg(srcUrl, REMBG_MODEL_MAP[bgQuality], onProgress);
     } catch (e) {
       console.warn('[rembg] server call failed, falling back to client pipeline:', e);
-      rembgAvailable = false; // don't retry this session
+      // Only write the server off when it looks down (network error / bad gateway). A 4xx or
+      // 500 is usually about this one image and shouldn't disable BiRefNet for the session.
+      const status = (e as { status?: number }).status;
+      if (status === undefined || status >= 502) rembgAvailable = false;
     }
   }
 
@@ -1145,6 +1150,19 @@ export async function upscaleImage(
   } finally {
     await upscaler.dispose();
   }
+}
+
+/**
+ * `name` minus its extension, plus `ext` — made unique within `used` by appending
+ * " (2)", " (3)"… so files with the same base name (e.g. from different folders)
+ * don't overwrite each other in a ZIP. Case-insensitive, since most filesystems are.
+ */
+export function uniqueFileName(name: string, ext: string, used: Set<string>): string {
+  const base = name.replace(/\.[^.]+$/, '') || name;
+  let candidate = `${base}.${ext}`;
+  for (let n = 2; used.has(candidate.toLowerCase()); n++) candidate = `${base} (${n}).${ext}`;
+  used.add(candidate.toLowerCase());
+  return candidate;
 }
 
 /**

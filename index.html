@@ -3,27 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      // Guard window.fetch from throwing read-only setter errors in specific sandbox environments
-      (function() {
-        try {
-          var originalFetch = window.fetch;
-          var storedFetch = originalFetch;
-          Object.defineProperty(window, 'fetch', {
-            get: function() {
-              return storedFetch;
-            },
-            set: function(value) {
-              storedFetch = value;
-            },
-            configurable: true,
-            enumerable: true
-          });
-        } catch (e) {
-          console.warn("Smart Resizer window.fetch alignment bypass hook failed", e);
-        }
-      })();
-    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" />
     <script>
       // Theme FOUC guard: commit the light/dark class before first paint so the
       // app never flashes the wrong theme. Mirrors src/hooks/useTheme.ts.

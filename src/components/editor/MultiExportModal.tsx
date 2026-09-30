@@ -2,7 +2,10 @@ import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Plus, Trash2, Download, Loader2, Check, Package, Layers, Image as ImageIcon } from 'lucide-react';
 import { useEditor } from '../../context/EditorContext';
-import { processImageOnCanvas, loadImage, computeTargetDims, effectiveSourceUrl } from '../../utils/imageProcessor';
+import { processImageOnCanvas, loadImage, computeTargetDims, effectiveSourceUrl, uniqueFileName } from '../../utils/imageProcessor';
+import { Dialog } from '../../catalyst-ui-kit/typescript/dialog';
+import { Input } from '../../catalyst-ui-kit/typescript/input';
+import { Select } from '../../catalyst-ui-kit/typescript/select';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -165,11 +168,13 @@ export const MultiExportModal: React.FC<MultiExportModalProps> = ({
     const zip = new JSZip();
     let done  = 0;
     let anyError = false;
+    const usedByFolder: Record<number, Set<string>> = {};
 
     for (const variant of variants) {
       setStatuses(prev => ({ ...prev, [variant.id]: { state: 'processing' } }));
       const px      = resolveSize(variant);
       const folder  = zip.folder(`${px}px`)!;
+      const usedNames = usedByFolder[px] ??= new Set<string>();
       let variantError = false;
 
       for (const img of images) {
@@ -180,7 +185,7 @@ export const MultiExportModal: React.FC<MultiExportModalProps> = ({
           const blobUrl = await processImageOnCanvas(imgElem, settings, width, height);
           try {
             const blob = await (await fetch(blobUrl)).blob();
-            folder.file(`${baseName(img.name)}.${variant.format}`, blob);
+            folder.file(uniqueFileName(img.name, variant.format, usedNames), blob);
           } finally {
             URL.revokeObjectURL(blobUrl);
           }
@@ -253,22 +258,9 @@ export const MultiExportModal: React.FC<MultiExportModalProps> = ({
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          transition={{ duration: 0.15 }}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-          onClick={onClose}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 10 }}
-            transition={{ type: 'spring', duration: 0.3, bounce: 0.1 }}
-            onClick={e => e.stopPropagation()}
-            className="bg-surface border border-line-strong rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]"
-          >
+    // Catalyst Dialog: focus trap, Escape, backdrop click and enter/exit transitions built in.
+    // Closing is blocked mid-export so a stray click can't abandon a running ZIP.
+    <Dialog open={open} onClose={() => { if (!running) onClose(); }} size="lg" className="!p-0 overflow-hidden flex max-h-[90vh] flex-col">
 
             {/* ── Header ── */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-line">
@@ -358,26 +350,26 @@ export const MultiExportModal: React.FC<MultiExportModalProps> = ({
                     <span className="text-[10px] font-bold text-faint w-4 shrink-0 text-center">{idx + 1}</span>
 
                     {/* Size picker */}
-                    <select
+                    <Select
                       value={v.size}
-                      onChange={e => updateVariant(v.id, { size: e.target.value as ExportSize })}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => updateVariant(v.id, { size: e.target.value as ExportSize })}
                       disabled={running}
-                      className="bg-elevated border border-line-strong rounded-lg px-2 py-1.5 text-xs text-content outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
+                      className="!w-auto [&_select]:!py-1 [&_select]:!text-xs [&_select]:!leading-5"
                     >
                       {SIZE_OPTIONS.map(o => (
                         <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
-                    </select>
+                    </Select>
 
                     {/* Custom size input */}
                     {v.size === 'custom' && (
-                      <input
+                      <Input
                         type="number" value={v.customSize} min={50} max={8000}
                         onChange={e => updateVariant(v.id, {
                           customSize: Math.max(50, Math.min(8000, Number(e.target.value))),
                         })}
                         disabled={running}
-                        className="w-16 bg-elevated border border-line-strong rounded-lg px-2 py-1.5 text-xs text-content outline-none focus:border-blue-500 transition-colors disabled:opacity-50"
+                        className="!w-20 [&_input]:!py-1 [&_input]:!px-2 [&_input]:!text-xs [&_input]:!leading-5"
                       />
                     )}
 
@@ -499,9 +491,6 @@ export const MultiExportModal: React.FC<MultiExportModalProps> = ({
               </div>
             </div>
 
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    </Dialog>
   );
 };

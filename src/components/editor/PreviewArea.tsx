@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { RefreshCw, Download, Maximize2, Image as ImageIcon, Layers } from 'lucide-react';
+import { RefreshCw, Download, Maximize2, Upload, Layers } from 'lucide-react';
 import { useEditor } from '../../context/EditorContext';
-import { BeforeAfterSlider } from '../landing/BeforeAfterSlider';
+import { BeforeAfterSlider } from './BeforeAfterSlider';
 import { MultiExportModal } from './MultiExportModal';
+import { Button } from '../../catalyst-ui-kit/typescript/button';
+import { getSampleImages } from '../../utils/sampleImages';
 
 const fade = { duration: 0.25, ease: [0.4, 0, 0.2, 1] as const };
 
@@ -11,35 +13,70 @@ export const PreviewArea: React.FC = () => {
   const {
     selectedImage, isProcessing,
     viewMode, setViewMode, settings, handleDownloadSingle,
-    handleOpenBigPreviewHero, handleLoadSingleTestProduct
+    handleOpenBigPreviewHero,
+    handleFiles, onDrag, onDrop, dragActive, images, setImages, setSelectedImageId,
   } = useEditor();
   const [multiExportOpen, setMultiExportOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadSamples = () => {
+    const items = getSampleImages();
+    setImages(items);
+    setSelectedImageId(items[0].id);
+  };
 
   if (!selectedImage) {
+    // Nothing selected. With an empty queue this is the primary dropzone; with images
+    // queued (none selected) it just prompts to pick one.
+    const empty = images.length === 0;
     return (
       <motion.section
         initial={{ opacity: 0, scale: 0.98 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.3 }}
-        className="lg:col-span-6 bg-surface border border-line rounded-xl p-5 flex flex-col shadow-lg items-center justify-center min-h-[500px]"
+        onDragEnter={onDrag} onDragOver={onDrag} onDragLeave={onDrag} onDrop={onDrop}
+        className={`order-1 lg:order-2 lg:col-span-6 border border-dashed rounded-xl p-6 flex flex-col shadow-lg items-center justify-center min-h-[360px] lg:min-h-0 lg:h-[calc(100vh-100px)] lg:sticky lg:top-[80px] transition-colors ${
+          dragActive ? 'border-blue-500/60 bg-blue-500/10' : 'border-line-strong bg-surface'
+        }`}
       >
-        <ImageIcon className="w-12 h-12 text-faint mb-4" />
-        <p className="font-medium text-sm text-muted">Workspace is Empty</p>
-        <p className="text-xs text-faint mt-2 max-w-[280px] text-center">
-          Select an image from the queue or load a test product to begin editing.
+        <input
+          type="file" ref={fileInputRef} multiple accept="image/*" className="hidden"
+          onChange={(e) => { if (e.target.files) handleFiles(e.target.files); e.target.value = ''; }}
+        />
+        <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-5">
+          <Upload className="w-6 h-6 text-blue-400" />
+        </div>
+        <h2 className="font-display font-semibold text-lg text-content">
+          {empty ? 'Drop your product images here' : 'Select an image to edit'}
+        </h2>
+        <p className="text-xs text-faint mt-2 max-w-[320px] text-center leading-relaxed">
+          {empty
+            ? 'Resize, remove backgrounds and export store-ready images. Everything runs in your browser — nothing is uploaded.'
+            : 'Pick an image from the queue to preview and adjust it.'}
         </p>
-        <button
-          onClick={handleLoadSingleTestProduct}
-          className="mt-6 px-4 py-2 bg-elevated hover:bg-hover text-content font-medium text-xs rounded-md transition-colors duration-200"
-        >
-          Load Test Product
-        </button>
+        {empty && (
+          <div className="flex items-center gap-3 mt-6">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-medium text-xs rounded-md transition-colors duration-200"
+            >
+              Browse files
+            </button>
+            <button
+              onClick={loadSamples}
+              className="px-4 py-2 bg-elevated hover:bg-hover text-content font-medium text-xs rounded-md transition-colors duration-200"
+            >
+              Try samples
+            </button>
+          </div>
+        )}
+        {empty && <p className="text-[10px] text-faint mt-4">JPG, PNG, WEBP — multiple files supported</p>}
       </motion.section>
     );
   }
 
   return (
-    <section className="lg:col-span-6 bg-surface border border-line rounded-xl p-5 flex flex-col shadow-lg">
+    <section className="order-1 lg:order-2 lg:col-span-6 bg-surface border border-line rounded-xl p-5 flex flex-col shadow-lg lg:h-[calc(100vh-100px)] lg:overflow-y-auto lg:sticky lg:top-[80px]">
       <div className="flex items-center justify-between pb-3 border-b border-line mb-4 flex-wrap gap-2">
         <h2 className="font-semibold text-sm text-content">Inspector</h2>
         
@@ -190,7 +227,7 @@ export const PreviewArea: React.FC = () => {
           </AnimatePresence>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-line flex items-center justify-between gap-3">
+        <div className="mt-4 pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3">
           <AnimatePresence mode="wait">
             <motion.div
               key={selectedImage.id}
@@ -204,22 +241,15 @@ export const PreviewArea: React.FC = () => {
               <p className="text-xs font-medium text-content max-w-[280px] truncate">{selectedImage.name}</p>
             </motion.div>
           </AnimatePresence>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleDownloadSingle}
-              className="px-3 py-2 bg-elevated text-content rounded-md text-xs font-medium hover:bg-hover transition-colors duration-200 flex items-center gap-1.5 border border-line-strong"
-            >
-              <Download className="w-3.5 h-3.5" />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button outline onClick={handleDownloadSingle} className="!text-xs !items-center">
+              <Download data-slot="icon" />
               Download
-            </button>
-            <button
-              onClick={() => setMultiExportOpen(true)}
-              title="Export multiple sizes & formats at once"
-              className="px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-md text-xs font-semibold transition-colors duration-200 flex items-center gap-1.5"
-            >
-              <Layers className="w-3.5 h-3.5" />
+            </Button>
+            <Button color="blue" onClick={() => setMultiExportOpen(true)} title="Export multiple sizes & formats at once" className="!text-xs !items-center">
+              <Layers data-slot="icon" />
               Multi-Export
-            </button>
+            </Button>
           </div>
         </div>
       </div>
